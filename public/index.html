@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#07111f" />
+  <title>Trading AI Scanner</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">AI MARKET INTELLIGENCE</div>
+      <h1>Trading AI Scanner</h1>
+      <p>Find the strongest setup across the markets — without being tied to one trading platform.</p>
+    </div>
+    <div class="status-pill"><span></span> Scanner ready</div>
+  </header>
+
+  <main class="shell">
+    <section class="hero-grid">
+      <article class="card best-card">
+        <div class="card-head">
+          <div><span class="label">BEST OPPORTUNITY</span><h2 id="bestSymbol">XAU/USD</h2></div>
+          <span class="signal buy" id="bestSignal">BUY</span>
+        </div>
+        <div class="price-row"><strong id="bestPrice">—</strong><span id="bestChange">—</span></div>
+        <div class="confidence"><div><span>Model confidence</span><strong id="bestConfidence">—</strong></div><div class="meter"><i id="confidenceBar"></i></div></div>
+        <div class="trade-grid">
+          <div><span>Entry zone</span><strong id="bestEntry">—</strong></div>
+          <div><span>Stop loss</span><strong id="bestStop">—</strong></div>
+          <div><span>Target</span><strong id="bestTarget">—</strong></div>
+          <div><span>Risk / reward</span><strong id="bestRR">—</strong></div>
+        </div>
+        <button class="primary" id="scanButton">Scan everything</button>
+        <p class="notice">Simulation mode: no real trades are placed.</p>
+      </article>
+
+      <article class="card chat-card">
+        <div class="card-head"><div><span class="label">AI TRADING CHAT</span><h2>Ask the robot</h2></div><span class="online">● Online</span></div>
+        <div class="messages" id="messages">
+          <div class="message bot">Hi. I’m your trading analysis assistant. Ask me about the current setup, compare markets, or tell me to scan everything.</div>
+        </div>
+        <div class="chat-input"><input id="chatInput" placeholder="Ask: Why gold? Compare gold and EUR/USD…" /><button id="sendButton">Send</button></div>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="section-head"><div><span class="label">MARKET SCAN</span><h2>Top opportunities</h2></div><span class="muted" id="scanTime">Awaiting first scan</span></div>
+      <div class="filters"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="forex">Forex</button><button class="filter" data-filter="gold">Gold</button><button class="filter" data-filter="crypto">Crypto</button><button class="filter" data-filter="indices">Indices</button></div>
+      <div class="opportunity-list" id="opportunities"></div>
+    </section>
+
+    <section class="bottom-grid">
+      <article class="card"><span class="label">RISK CONTROL</span><h2>Position calculator</h2><div class="form-grid"><label>Account balance<input id="balance" type="number" value="50000" min="0" /></label><label>Risk per trade %<input id="risk" type="number" value="1" min="0.1" max="5" step="0.1" /></label></div><div class="risk-result"><span>Maximum planned risk</span><strong id="riskAmount">R500</strong></div><p class="muted">Position size will be calculated from the selected instrument, entry and stop distance once live market data is connected.</p></article>
+      <article class="card"><span class="label">MODEL DISCIPLINE</span><h2>How the robot thinks</h2><ul class="checks"><li>Multi-timeframe trend structure</li><li>Momentum and volatility confirmation</li><li>Support / resistance and price action</li><li>Historical pattern similarity</li><li>Risk/reward and setup quality</li><li>Can say <b>WAIT</b> when confirmation is weak</li></ul></article>
+    </section>
+  </main>
+  <footer>Trading AI Scanner · Analysis and simulation only · Predictions are probabilities, not guarantees.</footer>
+  <script src="/app.js"></script>
+</body>
+</html>
