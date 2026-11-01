@@ -6,6 +6,20 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
 
+// Fail-safe: automatic trading permission is OFF on every server start.
+let automaticTradingEnabled = false;
+const brokerExecutionReady = false; // Set true only after a broker adapter and safeguards are implemented and tested.
+
+function automationStatus() {
+  return { enabled: automaticTradingEnabled, brokerConnected: false, executionAvailable: brokerExecutionReady };
+}
+
+// Every future automatic order route/worker MUST call this guard immediately before submission.
+export function assertAutomaticExecutionAllowed() {
+  if (!automaticTradingEnabled) throw new Error('Automatic trading is OFF. Automatic order submission is blocked.');
+  if (!brokerExecutionReady) throw new Error('Automatic execution is unavailable: no verified broker adapter is connected.');
+}
+
 const mime = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -18,6 +32,39 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     let pathname = decodeURIComponent(url.pathname);
+
+    if (pathname === '/api/automation/status' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(automationStatus()));
+      return;
+    }
+
+    if (pathname === '/api/automation/mode' && req.method === 'POST') {
+      let raw = '';
+      for await (const chunk of req) raw += chunk;
+      let body;
+      try { body = JSON.parse(raw || '{}'); } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'Invalid JSON request.' }));
+        return;
+      }
+      if (typeof body.enabled !== 'boolean') {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'enabled must be true or false.' }));
+        return;
+      }
+      // OFF takes effect synchronously on the server before the response is sent.
+      automaticTradingEnabled = body.enabled;
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(automationStatus()));
+      return;
+    }
+
+    if (pathname.startsWith('/api/')) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'API route not found.' }));
+      return;
+    }
     if (pathname === '/') pathname = '/index.html';
 
     const file = path.join(publicDir, pathname);

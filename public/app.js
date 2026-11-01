@@ -202,3 +202,56 @@ function updateRisk(){const amount=Number($('balance').value||0)*Number($('risk'
 document.querySelectorAll('.filter').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.filter').forEach(b=>b.classList.remove('active'));btn.classList.add('active');activeFilter=btn.dataset.filter;render()}));
 
 setBest(opportunities[0]); render(); updateRisk();
+refreshAutomationState();
+
+// Automatic trading permission is server-authoritative and defaults OFF.
+// Enabling this preference does not place trades: no broker or execution engine is connected.
+let automationState={enabled:false,brokerConnected:false,executionAvailable:false};
+async function refreshAutomationState(){
+  try{
+    const response=await fetch('/api/automation/status',{cache:'no-store'});
+    if(!response.ok) throw new Error('Unable to read automation status');
+    automationState=await response.json();
+  }catch{
+    automationState={enabled:false,brokerConnected:false,executionAvailable:false};
+    $('automationNotice').textContent='Could not verify the server safety state. Treat automation as OFF; automatic execution remains unavailable.';
+  }
+  renderAutomationState();
+}
+function renderAutomationState(){
+  const enabled=automationState.enabled===true;
+  $('autoTradingToggle').checked=enabled;
+  $('automationStatus').textContent=enabled?'ON · ARMED':'OFF · SAFE';
+  $('automationStatus').className=enabled?'armed-pill':'safe-pill';
+  $('automationModeLabel').textContent=enabled?'Automatic trading permission ON':'Manual trading only';
+  $('automationModeHelp').textContent=enabled?'Permission is armed, but broker execution is not connected.':'Automatic trading is disabled.';
+  $('permissionValue').textContent=enabled?'ON':'OFF';
+  $('brokerValue').textContent=automationState.brokerConnected?'Connected':'Not connected';
+  $('executionValue').textContent=automationState.executionAvailable?'Available':'Unavailable';
+  $('headerMode').querySelector('b').textContent=enabled?'AUTOMATION ARMED':'MANUAL MODE';
+  $('headerModeDetail').textContent=enabled?'Broker execution unavailable':'Automatic execution is OFF';
+  $('emergencyStop').textContent=enabled?'EMERGENCY STOP · DISABLE':'EMERGENCY STOP · OFF';
+  $('automationNotice').textContent=enabled
+    ? 'Your permission is ON, but no broker is connected and no execution engine is available. NEXORA cannot place trades yet.'
+    : 'Safety default: OFF. Automatic order requests are blocked by the server-side permission gate. Existing broker positions/orders are not affected by this prototype.';
+}
+async function setAutomationPermission(enabled){
+  $('autoTradingToggle').disabled=true;
+  $('emergencyStop').disabled=true;
+  try{
+    const response=await fetch('/api/automation/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||'Could not update automation permission');
+    automationState=result;
+    renderAutomationState();
+  }catch(error){
+    $('automationNotice').textContent=error.message+' Treat automation as OFF until the server confirms the setting.';
+    await refreshAutomationState();
+  }finally{
+    $('autoTradingToggle').disabled=false;
+    $('emergencyStop').disabled=false;
+  }
+}
+$('autoTradingToggle').addEventListener('change',event=>setAutomationPermission(event.target.checked));
+$('emergencyStop').addEventListener('click',()=>setAutomationPermission(false));
+

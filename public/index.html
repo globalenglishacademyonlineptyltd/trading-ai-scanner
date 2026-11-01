@@ -17,7 +17,7 @@
     </div>
     <div class="status-stack">
       <div class="status-pill"><span></span> Prototype online</div>
-      <div class="mode-pill"><b>MANUAL MODE</b><span>Automatic execution is OFF</span></div>
+      <div class="mode-pill" id="headerMode"><b>MANUAL MODE</b><span id="headerModeDetail">Automatic execution is OFF</span></div>
     </div>
   </header>
 
@@ -53,6 +53,21 @@
       <div class="section-head"><div><span class="label">DEMONSTRATION SCAN</span><h2>Sample opportunities</h2></div><span class="muted" id="scanTime">Awaiting scan</span></div>
       <div class="filters"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="forex">Forex</button><button class="filter" data-filter="gold">Gold</button><button class="filter" data-filter="crypto">Crypto</button><button class="filter" data-filter="indices">Indices</button></div>
       <div class="opportunity-list" id="opportunities"></div>
+    </section>
+
+    <section class="card automation-card">
+      <div class="section-head"><div><span class="label">YOUR CONTROL · AUTOMATION PERMISSION</span><h2>Automatic trading control</h2></div><span class="safe-pill" id="automationStatus">OFF · SAFE</span></div>
+      <p class="section-intro">You decide whether NEXORA is permitted to trade automatically. OFF is the default. When OFF, the server-side execution gate rejects automatic order requests. Turning this ON only arms your permission; a broker connection and a tested execution engine are still required before any real trade can be placed.</p>
+      <div class="automation-switch-row">
+        <label class="automation-toggle"><input id="autoTradingToggle" type="checkbox" /><span class="switch-track" aria-hidden="true"></span><span><b id="automationModeLabel">Manual trading only</b><small id="automationModeHelp">Automatic trading is disabled.</small></span></label>
+        <button class="danger-button" id="emergencyStop" type="button">EMERGENCY STOP · OFF</button>
+      </div>
+      <div class="automation-details">
+        <div><span>Automation permission</span><strong id="permissionValue">OFF</strong></div>
+        <div><span>Broker connection</span><strong id="brokerValue">Not connected</strong></div>
+        <div><span>Live order execution</span><strong id="executionValue">Unavailable</strong></div>
+      </div>
+      <p class="notice" id="automationNotice" role="status" aria-live="polite">Safety default: OFF. This prototype has no broker connection or live order engine, so it cannot place trades in either mode.</p>
     </section>
 
     <section class="card trade-planner">
