@@ -275,6 +275,20 @@ async function loadIntelligenceStatus(){
       '<p class="notice">'+escapeHtml(data.coverage)+'</p>';
   }catch(e){badge.textContent='STATUS UNAVAILABLE';badge.className='safe-pill';}
 }
+let symbolSearchTimer=null;
+async function searchMarketSymbols(){
+ const input=$('symbolSearch'),status=$('symbolSearchStatus'),results=$('symbolMatches'),query=input.value.trim();
+ if(query.length<2){results.hidden=true;status.textContent='Type at least 2 characters to search.';return;}
+ status.textContent='Searching provider instruments…';
+ try{
+  const r=await fetch('/api/market/search?q='+encodeURIComponent(query),{cache:'no-store'}),data=await r.json();
+  if(!r.ok)throw new Error(data.error||'Instrument search failed');
+  results.innerHTML='';
+  (data.items||[]).forEach(item=>{const option=document.createElement('option');option.value=item.symbol;option.textContent=item.symbol+' — '+item.name+' · '+[item.exchange,item.country,item.type].filter(Boolean).join(' · ');results.appendChild(option);});
+  results.hidden=!(data.items||[]).length;
+  status.textContent=(data.items||[]).length?data.items.length+' matches — select one below.':'No matching instruments found.';
+ }catch(e){results.hidden=true;status.textContent=e.message;}
+}
 async function analyzeLiveMarket(){
   const button=$('analyzeLive'),out=$('liveAnalysis');
   const symbol=$('liveSymbol').value.trim(),interval=$('liveInterval').value;
@@ -309,12 +323,15 @@ async function loadNews(){
     const data=await r.json();if(!r.ok)throw new Error(data.error||'News request failed');
     const items=data.items||[];
     out.innerHTML=items.length?items.map(a=>'<div class="opp"><div class="instrument"><a href="'+escapeHtml(a.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(a.title)+'</a><small>'+escapeHtml(a.source)+' · '+escapeHtml(a.publishedAt||'Publication time unavailable')+'</small></div><div class="muted">News</div></div>').join(''):'<p class="muted">No matching articles were returned.</p>';
-    $('newsUpdated').textContent='Retrieved '+new Date(data.retrievedAt).toLocaleTimeString();
+    $('newsUpdated').textContent=(data.source||'News feed')+' · '+new Date(data.retrievedAt).toLocaleTimeString()+(data.stale?' · cached':'');
   }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
   finally{button.disabled=false;button.textContent='Load news';}
 }
 $('analyzeLive').addEventListener('click',analyzeLiveMarket);
 $('refreshIntelligence').addEventListener('click',loadIntelligenceStatus);
 $('loadNews').addEventListener('click',loadNews);
+$('symbolSearch').addEventListener('input',()=>{clearTimeout(symbolSearchTimer);symbolSearchTimer=setTimeout(searchMarketSymbols,600);});
+$('symbolMatches').addEventListener('change',()=>{const symbol=$('symbolMatches').value;if(symbol){$('liveSymbol').value=symbol;$('symbolSearchStatus').textContent='Selected '+symbol;$('symbolMatches').hidden=true;}});
+$('liveSymbol').addEventListener('change',()=>{$('planSymbol').value=$('liveSymbol').value;});
 loadIntelligenceStatus();
 loadNews();
