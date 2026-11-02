@@ -47,8 +47,17 @@ async function refreshLiveScan(){
     const data=await r.json();
     if(!r.ok) throw new Error(data.error||'Live scan status unavailable');
     if(data.lastUpdated) renderLiveScan(data);
-    else {
+    else if(data.scanning) {
       $('scanConnection').textContent='Initial provider scan running…';
+      $('topScanStatus').textContent='Fetching live provider candles…';
+      $('topScanUpdated').textContent='Waiting for provider response';
+    } else if(data.error) {
+      $('scanConnection').textContent='Scanner error: '+data.error;
+      $('topScanStatus').textContent='Live scanner error';
+      $('topScanUpdated').textContent='No valid provider scan';
+      $('opportunities').innerHTML='<p class="form-error">'+escapeHtml(data.error)+'</p>';
+    } else {
+      $('scanConnection').textContent='Waiting for provider scan…';
       $('topScanStatus').textContent='Waiting for first live scan';
     }
   }catch(e){
