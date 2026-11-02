@@ -1,35 +1,66 @@
-const opportunities = [
-  {symbol:'XAU/USD',name:'Gold',market:'gold',signal:'BUY',confidence:87,price:'4,081.20',change:'+1.18%',entry:'4,075–4,083',stop:'4,058',target:'4,118',rr:'1:2.3'},
-  {symbol:'EUR/USD',name:'Euro / US Dollar',market:'forex',signal:'SELL',confidence:81,price:'1.1642',change:'-0.42%',entry:'1.1640–1.1650',stop:'1.1674',target:'1.1570',rr:'1:2.1'},
-  {symbol:'USD/ZAR',name:'US Dollar / Rand',market:'forex',signal:'BUY',confidence:76,price:'17.31',change:'+0.36%',entry:'17.28–17.33',stop:'17.18',target:'17.58',rr:'1:2.4'},
-  {symbol:'BTC/USD',name:'Bitcoin',market:'crypto',signal:'WAIT',confidence:64,price:'68,420',change:'+0.11%',entry:'Confirmation needed',stop:'—',target:'—',rr:'—'},
-  {symbol:'NAS100',name:'Nasdaq 100',market:'indices',signal:'BUY',confidence:73,price:'24,210',change:'+0.58%',entry:'24,170–24,220',stop:'24,040',target:'24,520',rr:'1:2.2'}
-];
-
-let activeFilter='all';
 let latestPlan=null;
 let bestFavourablePrice=null;
 const $=id=>document.getElementById(id);
 const fmt=(n, max=6)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:max});
 const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-
-function render(list=opportunities){
-  $('opportunities').innerHTML=list.filter(x=>activeFilter==='all'||x.market===activeFilter).map(x=>`<div class="opp"><div class="instrument">${escapeHtml(x.symbol)}<small>${escapeHtml(x.name)}</small></div><div class="direction ${x.signal==='BUY'?'high':x.signal==='SELL'?'sell':'medium'}">${x.signal}</div><div class="confidence-number ${x.confidence>=75?'high':'medium'}">${x.confidence}%</div><div>${x.price}<small>${x.change}</small></div><div>${x.rr}<small>R:R</small></div></div>`).join('')||'<p class="muted">No opportunities in this filter.</p>';
+let scanRefreshTimer=null;
+let latestScan=null;
+function renderLiveScan(data){
+  latestScan=data;
+  const rows=data.instruments||[];
+  const live=rows.filter(x=>x.status==='ok'&&Number.isFinite(x.lastPrice));
+  const list=$('opportunities');
+  if(!live.length){
+    list.innerHTML='<p class="form-error">No live instruments were returned. Check the provider connection or wait for the next scan. No sample data is being substituted.</p>';
+    $('scanConnection').textContent='No successful live quotes';
+    $('topScanStatus').textContent='Live scan unavailable';
+    $('topScanUpdated').textContent='No valid live scan';
+    $('scanTime').textContent='No live data';
+    return;
+  }
+  list.innerHTML=rows.map(x=>{
+    if(x.status!=='ok') return '<div class="opp"><div class="instrument">'+escapeHtml(x.symbol)+'<small>Provider data unavailable</small></div><div class="direction medium">UNAVAILABLE</div><div class="muted">—</div><div>—</div><div>—</div></div>';
+    const signal=x.direction||'WAIT';
+    return '<div class="opp"><div class="instrument">'+escapeHtml(x.symbol)+'<small>'+escapeHtml(x.name||x.market||'Provider instrument')+'</small></div><div class="direction '+(signal==='BUY'?'high':signal==='SELL'?'sell':'medium')+'">'+escapeHtml(signal)+'</div><div class="confidence-number medium">'+escapeHtml(x.score)+'<small>/100 technical</small></div><div>'+fmt(x.lastPrice)+'<small>'+escapeHtml(x.changePercent===null?'Change unavailable':fmt(x.changePercent,3)+'%')+'</small></div><div>'+(x.plan?'1:'+fmt(x.plan.riskReward,2):'—')+'<small>R:R</small></div></div>';
+  }).join('');
+  const top=[...live].sort((x,y)=>y.score-x.score)[0];
+  $('bestSymbol').textContent=top.symbol;
+  $('bestSignal').textContent=top.direction;
+  $('bestSignal').className='signal '+(top.direction==='BUY'?'buy':top.direction==='SELL'?'sell':'medium');
+  $('bestPrice').textContent=fmt(top.lastPrice);
+  $('bestChange').textContent=top.changePercent===null?'Change unavailable':fmt(top.changePercent,3)+'%';
+  $('bestConfidence').textContent=top.score+'/100';
+  $('confidenceBar').style.width=top.score+'%';
+  $('bestEntry').textContent=top.plan?fmt(top.plan.entry):'WAIT';
+  $('bestStop').textContent=top.plan?fmt(top.plan.stopLoss):'—';
+  $('bestTarget').textContent=top.plan?fmt(top.plan.takeProfit):'—';
+  $('bestRR').textContent=top.plan?'1:'+fmt(top.plan.riskReward,2):'—';
+  const stamp=data.lastUpdated?new Date(data.lastUpdated).toLocaleString():'Timestamp unavailable';
+  $('scanTime').textContent='Last provider scan: '+stamp;
+  $('scanConnection').textContent=live.length+' of '+rows.length+' instruments returned live data';
+  $('topScanStatus').textContent='Live provider data · '+live.length+' instruments';
+  $('topScanUpdated').textContent='Updated '+stamp;
 }
-
-function setBest(x){
-  $('bestSymbol').textContent=x.symbol; $('bestSignal').textContent=x.signal; $('bestSignal').className=`signal ${x.signal==='BUY'?'buy':x.signal==='SELL'?'sell':'medium'}`;
-  $('bestPrice').textContent=x.price; $('bestChange').textContent=x.change; $('bestConfidence').textContent=`${x.confidence}%`; $('confidenceBar').style.width=`${x.confidence}%`;
-  $('bestEntry').textContent=x.entry; $('bestStop').textContent=x.stop; $('bestTarget').textContent=x.target; $('bestRR').textContent=x.rr;
+async function refreshLiveScan(){
+  try{
+    const r=await fetch('/api/scan/status',{cache:'no-store'});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error||'Live scan status unavailable');
+    if(data.lastUpdated) renderLiveScan(data);
+    else {
+      $('scanConnection').textContent='Initial provider scan running…';
+      $('topScanStatus').textContent='Waiting for first live scan';
+    }
+  }catch(e){
+    $('scanConnection').textContent=e.message;
+    $('topScanStatus').textContent='Live scan connection unavailable';
+  }
 }
-
-function scan(){
-  const ranked=[...opportunities].sort((a,b)=>b.confidence-a.confidence);
-  setBest(ranked[0]);
-  $('scanTime').textContent=`Sample scan: ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
-  render();
+function startLiveScanRefresh(){
+  refreshLiveScan();
+  if(scanRefreshTimer) clearInterval(scanRefreshTimer);
+  scanRefreshTimer=setInterval(refreshLiveScan,30000);
 }
-
 function addMessage(text,type){
   const el=document.createElement('div');el.className=`message ${type}`;el.textContent=text;$('messages').appendChild(el);$('messages').scrollTop=$('messages').scrollHeight;
 }
@@ -39,11 +70,11 @@ function answer(q){
   if(s.includes('trailing')) return 'A trailing stop follows the market only when it moves in your favour. For a BUY/long position, the stop can ratchet upward as the best price rises. For a SELL/short position, it can ratchet downward as the best price falls. It must never move backwards and increase the original risk. This prototype calculates a trailing-stop illustration; it does not send broker orders.';
   if(s.includes('take profit')||s.includes('target')) return 'Take-profit is the planned exit level where the trade is intended to realise a gain. NEXORA should check that the target is on the profitable side of the entry, calculate reward relative to stop-loss risk, and support partial targets in a later full trade-management implementation.';
   if(s.includes('stop loss')||s.includes('stop-loss')) return 'A stop-loss is the protective exit level that defines where the trade idea is invalidated or the planned loss is limited. NEXORA must validate that it is on the correct side of the entry, calculate cash risk and position size using the instrument contract specifications, and account for gaps and slippage. A stop price does not guarantee an exact fill.';
-  if(s.includes('gold')||s.includes('xau')) return 'Gold appears in this prototype sample list only. The displayed quote and score are demonstration data, not a live market reading or recommendation.';
+  if(s.includes('gold')||s.includes('xau')) return 'Gold is analysed from Twelve Data only when the provider returns a valid current candle series. Check the Live Market Scanner timestamp and status before relying on a reading.';
   if(s.includes('risk')||s.includes('position')) return `The risk calculator shows a cash-risk budget based on your account balance and risk percentage. Safe quantity sizing also needs verified contract size, tick/pip value, account-currency conversion, fees and broker rules.`;
-  if(s.includes('scan')) return 'The current scan button ranks a small hard-coded demonstration list. Global instrument discovery, live market feeds, news intelligence and production signal analysis have not yet been connected.';
+  if(s.includes('scan')) return 'The live scanner refreshes provider-backed instruments on its scheduled interval. It only displays instruments for which the provider returns valid data; it does not fill missing prices with samples.';
   if(s.includes('buy')||s.includes('sell')) return 'A production BUY or SELL decision should require multiple independent confirmations, a valid protective stop, a defined target and passing risk checks. It must return WAIT when the evidence is insufficient.';
-  return 'Ask me about stop-loss, take-profit, trailing stops, risk calculations or the sample market list. Live news, global market data and broker execution still need to be integrated.';
+  return 'Ask me about stop-loss, take-profit, trailing stops, risk calculations or how to interpret the live provider scan. News confirmation and broker execution remain separate systems.';
 }
 
 function showPlanError(message){
@@ -192,16 +223,14 @@ async function copyPlan(){
   }
 }
 
-$('scanButton').addEventListener('click',scan);
 $('sendButton').addEventListener('click',()=>{const input=$('chatInput');const q=input.value.trim();if(!q)return;addMessage(q,'user');input.value='';addMessage(answer(q),'bot')});
 $('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('sendButton').click()});
 $('calculatePlan').addEventListener('click',calculatePlan);
 $('copyPlan').addEventListener('click',copyPlan);
 $('balance').addEventListener('input',updateRisk);$('risk').addEventListener('input',updateRisk);
 function updateRisk(){const amount=Number($('balance').value||0)*Number($('risk').value||0)/100;$('riskAmount').textContent=`R${amount.toLocaleString(undefined,{maximumFractionDigits:2})}`}
-document.querySelectorAll('.filter').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.filter').forEach(b=>b.classList.remove('active'));btn.classList.add('active');activeFilter=btn.dataset.filter;render()}));
 
-setBest(opportunities[0]); render(); updateRisk();
+updateRisk();
 refreshAutomationState();
 
 // Automatic trading permission is server-authoritative and defaults OFF.
@@ -329,9 +358,11 @@ async function loadNews(){
 }
 $('analyzeLive').addEventListener('click',analyzeLiveMarket);
 $('refreshIntelligence').addEventListener('click',loadIntelligenceStatus);
+$('refreshLiveScan').addEventListener('click',refreshLiveScan);
 $('loadNews').addEventListener('click',loadNews);
 $('symbolSearch').addEventListener('input',()=>{clearTimeout(symbolSearchTimer);symbolSearchTimer=setTimeout(searchMarketSymbols,600);});
 $('symbolMatches').addEventListener('change',()=>{const symbol=$('symbolMatches').value;if(symbol){$('liveSymbol').value=symbol;$('symbolSearchStatus').textContent='Selected '+symbol;$('symbolMatches').hidden=true;}});
 $('liveSymbol').addEventListener('change',()=>{$('planSymbol').value=$('liveSymbol').value;});
 loadIntelligenceStatus();
 loadNews();
+startLiveScanRefresh();
