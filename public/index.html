@@ -23,12 +23,12 @@
   <main class="shell">
     <section class="hero-grid">
       <article class="card best-card">
-        <div class="card-head"><div><span class="label">DEMONSTRATION SETUP · NOT LIVE</span><h2 id="bestSymbol">XAU/USD</h2></div><span class="signal buy" id="bestSignal">BUY</span></div>
+        <div class="card-head"><div><span class="label">LIVE MARKET SCANNER · PROVIDER DATA</span><h2 id="bestSymbol">XAU/USD</h2></div><span class="signal buy" id="bestSignal">BUY</span></div>
         <div class="price-row"><strong id="bestPrice">—</strong><span id="bestChange">—</span></div>
-        <div class="confidence"><div><span>Demonstration score (not a live probability)</span><strong id="bestConfidence">—</strong></div><div class="meter"><i id="confidenceBar"></i></div></div>
+        <div class="confidence"><div><span>Technical score (not a win probability)</span><strong id="bestConfidence">—</strong></div><div class="meter"><i id="confidenceBar"></i></div></div>
         <div class="trade-grid"><div><span>Entry zone</span><strong id="bestEntry">—</strong></div><div><span>Stop loss</span><strong id="bestStop">—</strong></div><div><span>Take profit</span><strong id="bestTarget">—</strong></div><div><span>Risk / reward</span><strong id="bestRR">—</strong></div></div>
-        <button class="primary" id="scanButton">Scan demonstration data</button>
-        <p class="notice">The sample opportunities below are not live quotes or recommendations. Use the live analyzer further down for provider-backed data.</p>
+        <div class="live-scan-meta"><span id="topScanStatus">Connecting to live scanner…</span><span id="topScanUpdated">No live scan yet</span></div>
+        <p class="notice">This summary is populated only from successful provider scans. It is not a guaranteed trading signal.</p>
       </article>
       <article class="card chat-card">
         <div class="card-head"><div><span class="label">NEXORA AI CHAT</span><h2>Ask NEXORA</h2></div><span class="online">● Prototype assistant</span></div>
@@ -61,9 +61,10 @@
     </section>
 
     <section class="card">
-      <div class="section-head"><div><span class="label">DEMONSTRATION SCAN</span><h2>Sample opportunities</h2></div><span class="muted" id="scanTime">Awaiting scan</span></div>
-      <div class="filters"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="forex">Forex</button><button class="filter" data-filter="gold">Gold</button><button class="filter" data-filter="crypto">Crypto</button><button class="filter" data-filter="indices">Indices</button></div>
-      <div class="opportunity-list" id="opportunities"></div>
+      <div class="section-head"><div><span class="label">AUTOMATIC PROVIDER SCAN</span><h2>Live market opportunities</h2></div><span class="muted" id="scanTime">Waiting for provider data</span></div>
+      <div class="live-scan-toolbar"><span id="scanConnection">Waiting for first scan…</span><span>Automatic refresh: every 15 minutes</span><button class="secondary" id="refreshLiveScan">Refresh status</button></div>
+      <div class="opportunity-list" id="opportunities"><p class="muted">Waiting for live market data from Twelve Data. No demonstration prices are shown here.</p></div>
+      <p class="notice">Only provider-returned instruments are shown. A failed or stale instrument is marked unavailable; NEXORA will not substitute sample values.</p>
     </section>
 
     <section class="card automation-card">
