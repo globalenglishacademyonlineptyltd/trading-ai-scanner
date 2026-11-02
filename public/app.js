@@ -255,3 +255,66 @@ async function setAutomationPermission(enabled){
 $('autoTradingToggle').addEventListener('change',event=>setAutomationPermission(event.target.checked));
 $('emergencyStop').addEventListener('click',()=>setAutomationPermission(false));
 
+
+
+// Live Intelligence API integration. Provider-backed responses are rendered separately
+// from the legacy demonstration opportunities above.
+async function loadIntelligenceStatus(){
+  const badge=$('intelligenceStatus');
+  try{
+    const r=await fetch('/api/intelligence/status',{cache:'no-store'});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error||'Status unavailable');
+    badge.textContent=data.marketData==='configured'?'MARKET DATA CONFIGURED':'MARKET DATA NOT CONFIGURED';
+    badge.className=data.marketData==='configured'?'armed-pill':'safe-pill';
+    $('liveAnalysis').innerHTML='<div class="result-grid">'+
+      '<div class="result-tile"><span>Market data</span><strong>'+escapeHtml(data.marketData)+'</strong></div>'+
+      '<div class="result-tile"><span>News feed</span><strong>'+escapeHtml(data.news)+'</strong></div>'+
+      '<div class="result-tile"><span>Technical engine</span><strong>'+escapeHtml(data.technicalEngine)+'</strong></div>'+
+      '<div class="result-tile"><span>Broker</span><strong>'+escapeHtml(data.broker)+'</strong></div></div>'+
+      '<p class="notice">'+escapeHtml(data.coverage)+'</p>';
+  }catch(e){badge.textContent='STATUS UNAVAILABLE';badge.className='safe-pill';}
+}
+async function analyzeLiveMarket(){
+  const button=$('analyzeLive'),out=$('liveAnalysis');
+  const symbol=$('liveSymbol').value.trim(),interval=$('liveInterval').value;
+  if(!symbol){out.textContent='Enter a market symbol.';return;}
+  button.disabled=true;button.textContent='Analysing…';
+  out.innerHTML='<div class="result-placeholder">Requesting current provider candles and calculating indicators…</div>';
+  try{
+    const r=await fetch('/api/signals?symbol='+encodeURIComponent(symbol)+'&interval='+encodeURIComponent(interval),{cache:'no-store'});
+    const data=await r.json();if(!r.ok)throw new Error(data.error||'Analysis failed');
+    const i=data.indicators||{},p=data.plan;
+    out.innerHTML='<div class="result-grid">'+
+      '<div class="result-tile"><span>Instrument</span><strong>'+escapeHtml(data.symbol)+'</strong></div>'+
+      '<div class="result-tile"><span>Decision</span><strong>'+escapeHtml(data.direction)+'</strong></div>'+
+      '<div class="result-tile"><span>Technical score</span><strong>'+escapeHtml(data.score)+' / 100</strong></div>'+
+      '<div class="result-tile"><span>Latest close</span><strong>'+fmt(data.lastPrice)+'</strong></div>'+
+      '<div class="result-tile"><span>Trend</span><strong>'+escapeHtml(i.trend||'—')+'</strong></div>'+
+      '<div class="result-tile"><span>RSI (14)</span><strong>'+fmt(i.rsi14,2)+'</strong></div>'+
+      '<div class="result-tile"><span>EMA 20 / EMA 50</span><strong>'+fmt(i.ema20)+' / '+fmt(i.ema50)+'</strong></div>'+
+      '<div class="result-tile"><span>Momentum</span><strong>'+fmt(i.momentumPercent,3)+'%</strong></div>'+
+      (p?'<div class="result-tile"><span>Indicative entry</span><strong>'+fmt(p.entry)+'</strong></div><div class="result-tile"><span>Indicative stop-loss</span><strong>'+fmt(p.stopLoss)+'</strong></div><div class="result-tile"><span>Indicative take-profit</span><strong>'+fmt(p.takeProfit)+'</strong></div><div class="result-tile"><span>Risk / reward</span><strong>1 : '+fmt(p.riskReward,2)+'</strong></div>':'')+
+      '</div><p class="notice">'+escapeHtml(data.decision)+'</p><p class="muted">Source: '+escapeHtml(data.source)+' · '+escapeHtml(data.interval)+' · Candle: '+escapeHtml(data.timestamp||'unknown')+'</p>'+
+      '<ul class="checks">'+(data.warnings||[]).map(w=>'<li>'+escapeHtml(w)+'</li>').join('')+'</ul>';
+  }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
+  finally{button.disabled=false;button.textContent='Analyse live market';}
+}
+async function loadNews(){
+  const button=$('loadNews'),out=$('newsFeed');
+  button.disabled=true;button.textContent='Loading…';
+  try{
+    const q=$('newsQuery').value.trim()||'markets OR finance';
+    const r=await fetch('/api/news?q='+encodeURIComponent(q),{cache:'no-store'});
+    const data=await r.json();if(!r.ok)throw new Error(data.error||'News request failed');
+    const items=data.items||[];
+    out.innerHTML=items.length?items.map(a=>'<div class="opp"><div class="instrument"><a href="'+escapeHtml(a.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(a.title)+'</a><small>'+escapeHtml(a.source)+' · '+escapeHtml(a.publishedAt||'Publication time unavailable')+'</small></div><div class="muted">News</div></div>').join(''):'<p class="muted">No matching articles were returned.</p>';
+    $('newsUpdated').textContent='Retrieved '+new Date(data.retrievedAt).toLocaleTimeString();
+  }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
+  finally{button.disabled=false;button.textContent='Load news';}
+}
+$('analyzeLive').addEventListener('click',analyzeLiveMarket);
+$('refreshIntelligence').addEventListener('click',loadIntelligenceStatus);
+$('loadNews').addEventListener('click',loadNews);
+loadIntelligenceStatus();
+loadNews();
