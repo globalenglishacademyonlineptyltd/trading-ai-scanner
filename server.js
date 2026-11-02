@@ -149,10 +149,10 @@ async function getGoogleNewsFallback(query) {
   try {
     const response=await fetch(url,{signal:controller.signal,headers:{accept:'application/rss+xml, application/xml, text/xml'}});
     if(!response.ok)throw new Error('RSS fallback returned HTTP '+response.status);
-    const xml=await response.text(),blocks=xml.match(/<item>[\\s\\S]*?<\\/item>/gi)||[];
+    const xml=await response.text(),blocks=xml.match(/<item>[\s\S]*?<\/item>/gi)||[];
     const decode=v=>v.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'");
     return blocks.slice(0,20).map(block=>{
-      const get=tag=>decode(((block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'))||[,''])[1]).replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim());
+      const get=tag=>decode(((block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'))||[,''])[1]).replace(/<!\[CDATA\[|\]\]>/g,'').trim());
       return {title:get('title'),url:get('link'),source:get('source')||'Google News',publishedAt:get('pubDate')||null,language:'en',tone:null,sourceProvider:'Google News RSS'};
     }).filter(x=>x.title&&x.url);
   } finally {clearTimeout(timer);}
