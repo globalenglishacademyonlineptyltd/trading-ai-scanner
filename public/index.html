@@ -13,40 +13,43 @@
     <div>
       <div class="eyebrow">NEXORA AI · GLOBAL TRADING INTELLIGENCE</div>
       <h1>NEXORA AI</h1>
-      <p>Investigate the market. Understand the risk. You stay in control.</p>
+      <p>See the Market Before the Move · Investigate the market. Understand the risk. You stay in control.</p>
     </div>
     <div class="status-stack">
-      <div class="status-pill"><span></span> Prototype online</div>
+      <div class="status-pill"><span></span> Intelligence API online</div>
       <div class="mode-pill" id="headerMode"><b>MANUAL MODE</b><span id="headerModeDetail">Automatic execution is OFF</span></div>
     </div>
   </header>
-
   <main class="shell">
     <section class="hero-grid">
       <article class="card best-card">
-        <div class="card-head">
-          <div><span class="label">TOP DEMONSTRATION SETUP</span><h2 id="bestSymbol">XAU/USD</h2></div>
-          <span class="signal buy" id="bestSignal">BUY</span>
-        </div>
+        <div class="card-head"><div><span class="label">DEMONSTRATION SETUP · NOT LIVE</span><h2 id="bestSymbol">XAU/USD</h2></div><span class="signal buy" id="bestSignal">BUY</span></div>
         <div class="price-row"><strong id="bestPrice">—</strong><span id="bestChange">—</span></div>
         <div class="confidence"><div><span>Demonstration score (not a live probability)</span><strong id="bestConfidence">—</strong></div><div class="meter"><i id="confidenceBar"></i></div></div>
-        <div class="trade-grid">
-          <div><span>Entry zone</span><strong id="bestEntry">—</strong></div>
-          <div><span>Stop loss</span><strong id="bestStop">—</strong></div>
-          <div><span>Take profit</span><strong id="bestTarget">—</strong></div>
-          <div><span>Risk / reward</span><strong id="bestRR">—</strong></div>
-        </div>
+        <div class="trade-grid"><div><span>Entry zone</span><strong id="bestEntry">—</strong></div><div><span>Stop loss</span><strong id="bestStop">—</strong></div><div><span>Take profit</span><strong id="bestTarget">—</strong></div><div><span>Risk / reward</span><strong id="bestRR">—</strong></div></div>
         <button class="primary" id="scanButton">Scan demonstration data</button>
-        <p class="notice">Prototype only: sample data is used. No broker is connected and no orders are placed.</p>
+        <p class="notice">The sample opportunities below are not live quotes or recommendations. Use the live analyzer further down for provider-backed data.</p>
       </article>
-
       <article class="card chat-card">
-        <div class="card-head"><div><span class="label">NEXORA AI CHAT</span><h2>Ask NEXORA</h2></div><span class="online">● Prototype</span></div>
-        <div class="messages" id="messages">
-          <div class="message bot">Hi. I’m NEXORA. This prototype can explain the sample setup and trade-planning controls. Live news, market feeds and AI analysis still need to be connected.</div>
-        </div>
+        <div class="card-head"><div><span class="label">NEXORA AI CHAT</span><h2>Ask NEXORA</h2></div><span class="online">● Prototype assistant</span></div>
+        <div class="messages" id="messages"><div class="message bot">I can explain trade planning and risk controls. Live market analysis is available through the Live Intelligence panel when a data provider is configured.</div></div>
         <div class="chat-input"><input id="chatInput" placeholder="Ask about stop-loss, take-profit or risk…" /><button id="sendButton">Send</button></div>
       </article>
+    </section>
+
+    <section class="card" id="liveIntelligence">
+      <div class="section-head"><div><span class="label">LIVE INTELLIGENCE · PROVIDER-BACKED</span><h2>Market analysis engine</h2></div><span class="safe-pill" id="intelligenceStatus">Checking connections…</span></div>
+      <p class="section-intro">Fetches market candles from Twelve Data and calculates technical indicators. It does not claim global coverage: only instruments supported by the connected provider can be analysed.</p>
+      <div class="planner-grid">
+        <label>Market symbol<input id="liveSymbol" value="XAU/USD" maxlength="40" /></label>
+        <label>Analysis timeframe<select id="liveInterval"><option value="1h">1 hour</option><option value="4h">4 hours</option><option value="1day">1 day</option><option value="15min">15 minutes</option></select></label>
+      </div>
+      <div class="planner-actions"><button class="primary" id="analyzeLive">Analyse live market</button><button class="secondary" id="refreshIntelligence">Refresh connection status</button></div>
+      <div id="liveAnalysis" class="plan-results"><div class="result-placeholder">Enter a supported provider symbol and request an analysis.</div></div>
+      <div class="section-head"><div><span class="label">GLOBAL FINANCIAL NEWS</span><h2>News intelligence feed</h2></div><span class="muted" id="newsUpdated">Not loaded</span></div>
+      <div class="chat-input"><input id="newsQuery" value="markets OR finance OR central bank OR inflation" /><button id="loadNews">Load news</button></div>
+      <div id="newsFeed" class="opportunity-list"><p class="muted">News will appear here when the feed is available.</p></div>
+      <p class="notice">News is retrieved from GDELT. Headlines and tone are context, not a verified trading signal. Provider coverage, licensing, latency and rate limits apply.</p>
     </section>
 
     <section class="card">
@@ -57,25 +60,18 @@
 
     <section class="card automation-card">
       <div class="section-head"><div><span class="label">YOUR CONTROL · AUTOMATION PERMISSION</span><h2>Automatic trading control</h2></div><span class="safe-pill" id="automationStatus">OFF · SAFE</span></div>
-      <p class="section-intro">You decide whether NEXORA is permitted to trade automatically. OFF is the default. When OFF, the server-side execution gate rejects automatic order requests. Turning this ON only arms your permission; a broker connection and a tested execution engine are still required before any real trade can be placed.</p>
+      <p class="section-intro">Automatic order execution remains disabled. Turning this preference ON does not connect a broker or place orders. A verified broker adapter, authenticated connection, tested order lifecycle and risk safeguards are required first.</p>
       <div class="automation-switch-row">
         <label class="automation-toggle"><input id="autoTradingToggle" type="checkbox" /><span class="switch-track" aria-hidden="true"></span><span><b id="automationModeLabel">Manual trading only</b><small id="automationModeHelp">Automatic trading is disabled.</small></span></label>
         <button class="danger-button" id="emergencyStop" type="button">EMERGENCY STOP · OFF</button>
       </div>
-      <div class="automation-details">
-        <div><span>Automation permission</span><strong id="permissionValue">OFF</strong></div>
-        <div><span>Broker connection</span><strong id="brokerValue">Not connected</strong></div>
-        <div><span>Live order execution</span><strong id="executionValue">Unavailable</strong></div>
-      </div>
-      <p class="notice" id="automationNotice" role="status" aria-live="polite">Safety default: OFF. This prototype has no broker connection or live order engine, so it cannot place trades in either mode.</p>
+      <div class="automation-details"><div><span>Automation permission</span><strong id="permissionValue">OFF</strong></div><div><span>Broker connection</span><strong id="brokerValue">Not connected</strong></div><div><span>Live order execution</span><strong id="executionValue">Unavailable</strong></div></div>
+      <p class="notice" id="automationNotice" role="status" aria-live="polite">Safety default: OFF. No broker connection or live order engine is active.</p>
     </section>
 
     <section class="card trade-planner">
-      <div class="section-head">
-        <div><span class="label">TRADE MANAGEMENT · MANUAL MODE</span><h2>Build and review a trade plan</h2></div>
-        <span class="safe-pill">No orders sent</span>
-      </div>
-      <p class="section-intro">Use NEXORA to calculate and review your stop-loss, take-profit and trailing-stop levels. You remain responsible for placing any live manual order with your chosen broker.</p>
+      <div class="section-head"><div><span class="label">TRADE MANAGEMENT · MANUAL MODE</span><h2>Build and review a trade plan</h2></div><span class="safe-pill">No orders sent</span></div>
+      <p class="section-intro">Calculate and review stop-loss, take-profit and trailing-stop levels. This planner does not submit orders.</p>
       <div class="planner-grid">
         <label>Instrument / symbol<input id="planSymbol" type="text" value="XAU/USD" maxlength="40" /></label>
         <label>Trade direction<select id="planDirection"><option value="long">BUY / LONG</option><option value="short">SELL / SHORT</option></select></label>
@@ -86,27 +82,18 @@
         <label>Account balance (R)<input id="planBalance" type="number" min="0" step="any" value="50000" /></label>
         <label>Maximum account risk (%)<input id="planRisk" type="number" min="0.01" max="5" step="0.01" value="1" /></label>
       </div>
-      <div class="trailing-controls">
-        <label class="toggle-label"><input id="trailingEnabled" type="checkbox" checked /><span><b>Enable trailing-stop calculation</b><small>Trail only in the favourable direction; never widen the stop to increase risk.</small></span></label>
-        <label>Trailing distance (price units)<input id="trailingDistance" type="number" min="0" step="any" value="15" /></label>
-      </div>
-      <div class="planner-actions">
-        <button class="primary" id="calculatePlan">Calculate trade plan</button>
-        <button class="secondary" id="copyPlan" disabled>Copy plan</button>
-      </div>
+      <div class="trailing-controls"><label class="toggle-label"><input id="trailingEnabled" type="checkbox" checked /><span><b>Enable trailing-stop calculation</b><small>Trail only in the favourable direction; never widen the stop to increase risk.</small></span></label><label>Trailing distance (price units)<input id="trailingDistance" type="number" min="0" step="any" value="15" /></label></div>
+      <div class="planner-actions"><button class="primary" id="calculatePlan">Calculate trade plan</button><button class="secondary" id="copyPlan" disabled>Copy plan</button></div>
       <div id="planError" class="form-error" role="alert" aria-live="polite"></div>
-      <div id="planResults" class="plan-results" aria-live="polite">
-        <div class="result-placeholder">Enter your trade details and calculate a plan to see the risk, reward and trailing-stop levels.</div>
-      </div>
-      <p class="notice">Position quantity is not estimated here because contract size, pip/tick value, leverage, account currency conversion and broker rules vary by instrument and provider. A price-distance calculation alone is not enough to calculate a safe order size.</p>
+      <div id="planResults" class="plan-results" aria-live="polite"><div class="result-placeholder">Enter your trade details and calculate a plan to see risk, reward and trailing-stop levels.</div></div>
+      <p class="notice">Position quantity is not estimated without verified contract size, tick value, leverage, currency conversion and broker rules.</p>
     </section>
-
     <section class="bottom-grid">
-      <article class="card"><span class="label">RISK CONTROL</span><h2>Account risk calculator</h2><div class="form-grid"><label>Account balance (R)<input id="balance" type="number" value="50000" min="0" /></label><label>Risk per trade %<input id="risk" type="number" value="1" min="0.01" max="5" step="0.01" /></label></div><div class="risk-result"><span>Maximum planned cash risk</span><strong id="riskAmount">R500</strong></div><p class="muted">This is a cash-risk budget only. Correct position sizing needs verified instrument contract specifications and broker details.</p></article>
-      <article class="card"><span class="label">MODEL DISCIPLINE</span><h2>How NEXORA must think</h2><ul class="checks"><li>Global news, events and market sentiment</li><li>All instruments discoverable from connected data sources</li><li>Multi-timeframe trends, momentum and volatility</li><li>Signals cross-checked against independent evidence</li><li>Stop-loss, take-profit and trailing-stop rules</li><li>Can say <b>WAIT</b> when evidence or data quality is weak</li><li>Manual trading first; optional automation only after testing</li></ul></article>
+      <article class="card"><span class="label">RISK CONTROL</span><h2>Account risk calculator</h2><div class="form-grid"><label>Account balance (R)<input id="balance" type="number" value="50000" min="0" /></label><label>Risk per trade %<input id="risk" type="number" value="1" min="0.01" max="5" step="0.01" /></label></div><div class="risk-result"><span>Maximum planned cash risk</span><strong id="riskAmount">R500</strong></div><p class="muted">Cash-risk budget only, not position size or guaranteed maximum loss.</p></article>
+      <article class="card"><span class="label">MODEL DISCIPLINE</span><h2>How NEXORA must think</h2><ul class="checks"><li>Global news, events and market sentiment</li><li>All instruments discoverable from connected data sources</li><li>Multi-timeframe trends, momentum and volatility</li><li>Signals cross-checked against independent evidence</li><li>Stop-loss, take-profit and trailing-stop rules</li><li>Can say WAIT when evidence or data quality is weak</li><li>Manual trading first; optional automation only after testing</li></ul></article>
     </section>
   </main>
-  <footer>NEXORA AI · Prototype and trade-planning tools only · No live data or broker execution is connected · Trading involves risk.</footer>
+  <footer>NEXORA AI · Live data depends on provider configuration · Technical signals are preliminary · No broker orders are placed.</footer>
   <script src="/app.js"></script>
 </body>
 </html>
