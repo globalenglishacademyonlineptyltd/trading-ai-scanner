@@ -22,6 +22,10 @@ export function assertAutomaticExecutionAllowed() {
 
 const TWELVEDATA = 'https://api.twelvedata.com';
 const GDELT = 'https://api.gdeltproject.org/api/v2/doc/doc';
+const GOOGLE_NEWS_RSS = 'https://news.google.com/rss/search';
+let newsCache = { key: '', items: [], at: 0 };
+let newsBackoffUntil = 0;
+const symbolSearchCache = new Map();
 const mime = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -129,17 +133,48 @@ function analyseSeries(series) {
     warnings: ['Technical-only analysis; no news confirmation in this score.', 'Not a probability of profit or a guarantee.', 'No position size is calculated without verified contract and account-currency specifications.']
   };
 }
+async function getSymbolMatches(query) {
+  requireTwelveKey();
+  const key=query.trim().toLowerCase(), cached=symbolSearchCache.get(key);
+  if(key.length<2)return [];
+  if(cached && Date.now()-cached.at<600000)return cached.items;
+  const data=await jsonFetch(twelveUrl({function:'symbol_search',symbol:query.trim(),outputsize:30,show_plan:true}).toString());
+  if(data.status==='error'||!Array.isArray(data.data))throw new Error(data.message||'Instrument search unavailable.');
+  const items=data.data.map(x=>({symbol:x.symbol,name:x.instrument_name||x.name||x.symbol,exchange:x.exchange||'',country:x.country||'',type:x.instrument_type||x.type||'Instrument',access:x.access?.global||x.access?.plan||'Provider-listed'})).filter(x=>x.symbol);
+  symbolSearchCache.set(key,{items,at:Date.now()});return items;
+}
+async function getGoogleNewsFallback(query) {
+  const url=new URL(GOOGLE_NEWS_RSS);url.searchParams.set('q',query||'global financial markets');url.searchParams.set('hl','en-US');url.searchParams.set('gl','US');url.searchParams.set('ceid','US:en');
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+  try {
+    const response=await fetch(url,{signal:controller.signal,headers:{accept:'application/rss+xml, application/xml, text/xml'}});
+    if(!response.ok)throw new Error('RSS fallback returned HTTP '+response.status);
+    const xml=await response.text(),blocks=xml.match(/<item>[\\s\\S]*?<\\/item>/gi)||[];
+    const decode=v=>v.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'");
+    return blocks.slice(0,20).map(block=>{
+      const get=tag=>decode(((block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'))||[,''])[1]).replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim());
+      return {title:get('title'),url:get('link'),source:get('source')||'Google News',publishedAt:get('pubDate')||null,language:'en',tone:null,sourceProvider:'Google News RSS'};
+    }).filter(x=>x.title&&x.url);
+  } finally {clearTimeout(timer);}
+}
 async function getNews(query) {
-  const url = new URL(GDELT);
-  url.searchParams.set('query', query || 'markets OR finance OR central bank OR inflation');
-  url.searchParams.set('mode', 'ArtList'); url.searchParams.set('format', 'json');
-  url.searchParams.set('sort', 'HybridRel'); url.searchParams.set('maxrecords', '25');
-  const data = await jsonFetch(url.toString(), 15000);
-  return (data.articles || []).map(a => ({
-    title: a.title, url: a.url, source: a.domain || a.source || 'Unknown source',
-    publishedAt: a.seendate || null, language: a.language || null,
-    tone: safeNumber(a.tone), sourceProvider: 'GDELT'
-  })).filter(a => a.title && a.url);
+  const key=(query||'global markets').trim().toLowerCase();
+  if(newsCache.key===key&&Date.now()-newsCache.at<300000)return {items:newsCache.items,source:'Cached news',stale:false};
+  let primaryError=null;
+  if(Date.now()>=newsBackoffUntil)try{
+    const url=new URL(GDELT);url.searchParams.set('query',query||'markets OR finance OR central bank OR inflation');
+    url.searchParams.set('mode','ArtList');url.searchParams.set('format','json');url.searchParams.set('sort','HybridRel');url.searchParams.set('maxrecords','20');
+    const data=await jsonFetch(url.toString(),15000);
+    const items=(data.articles||[]).map(a=>({title:a.title,url:a.url,source:a.domain||a.source||'Unknown source',publishedAt:a.seendate||null,language:a.language||null,tone:safeNumber(a.tone),sourceProvider:'GDELT'})).filter(a=>a.title&&a.url);
+    newsCache={key,items,at:Date.now()};return {items,source:'GDELT',stale:false};
+  }catch(error){primaryError=error;if(/HTTP 429/.test(error.message))newsBackoffUntil=Date.now()+180000;}
+  try{
+    const items=await getGoogleNewsFallback(query);newsCache={key,items,at:Date.now()};
+    return {items,source:'Google News RSS fallback',stale:false,primaryWarning:primaryError?.message||'GDELT unavailable'};
+  }catch(fallbackError){
+    if(newsCache.items.length)return {items:newsCache.items,source:'Cached news (stale)',stale:true,primaryWarning:primaryError?.message||fallbackError.message};
+    const error=new Error('News providers are temporarily unavailable. Please try again in a few minutes.');error.status=503;throw error;
+  }
 }
 async function route(req, res, url) {
   const p = url.pathname;
@@ -154,10 +189,15 @@ async function route(req, res, url) {
   }
   if (p === '/api/intelligence/status') return send(res,200,{
     service:'NEXORA Global Intelligence', marketData: process.env.TWELVEDATA_API_KEY ? 'configured' : 'not_configured',
-    news: 'GDELT public news search available', technicalEngine: 'active',
+    news: 'GDELT with Google News RSS fallback', technicalEngine: 'active',
     broker: 'not_connected', automaticExecution: 'disabled',
     coverage: 'Only instruments returned by connected providers can be scanned; this is not an exhaustive all-world exchange feed.'
   });
+  if (p === '/api/market/search') {
+    const q=url.searchParams.get('q')||'';
+    if(q.trim().length<2)return send(res,200,{items:[],source:'Twelve Data'});
+    return send(res,200,{items:await getSymbolMatches(q),source:'Twelve Data'});
+  }
   if (p === '/api/market/quote') {
     const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
     return send(res,200,await getQuote(symbol));
@@ -168,7 +208,7 @@ async function route(req, res, url) {
   }
   if (p === '/api/news') {
     const query=url.searchParams.get('q')||'markets OR finance OR central bank OR inflation';
-    return send(res,200,{items:await getNews(query),source:'GDELT',retrievedAt:new Date().toISOString()});
+    return send(res,200,{...await getNews(query),retrievedAt:new Date().toISOString()});
   }
   if (p === '/api/signals') {
     const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
