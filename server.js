@@ -198,12 +198,14 @@ async function runLiveScan(force = false) {
       try {
         const series = await getSeries(item.symbol, '1h', 100);
         const analysis = analyseSeries(series);
-        const quoteChange = await getQuote(item.symbol).catch(() => null);
+        const candles = series.candles;
+        const previousClose = candles.length > 1 ? candles[candles.length - 2].close : null;
+        const changePercent = previousClose && previousClose !== 0 ? ((analysis.lastPrice - previousClose) / previousClose) * 100 : null;
         instruments.push({
           symbol: item.symbol, name: item.name, market: item.market, status: 'ok',
           direction: analysis.direction, score: analysis.score,
           lastPrice: analysis.lastPrice,
-          changePercent: quoteChange?.percentChange ?? null,
+          changePercent,
           timestamp: analysis.timestamp, source: 'Twelve Data',
           plan: analysis.plan, indicators: analysis.indicators
         });
