@@ -20,7 +20,7 @@ export function assertAutomaticExecutionAllowed() {
   if (!brokerExecutionReady) throw new Error('No verified broker adapter is connected.');
 }
 
-const TWELVE = 'https://api.twelvedata.com';
+const TWELVEDATA = 'https://api.twelvedata.com';
 const GDELT = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const mime = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -52,7 +52,7 @@ function requireTwelveKey() {
   }
 }
 function twelveUrl(params) {
-  const url = new URL(TWELVE);
+  const url = new URL(TWELVEDATA);
   for (const [k,v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   url.searchParams.set('apikey', process.env.TWELVEDATA_API_KEY);
   return url;
