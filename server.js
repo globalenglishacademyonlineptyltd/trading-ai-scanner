@@ -26,6 +26,17 @@ const GOOGLE_NEWS_RSS = 'https://news.google.com/rss/search';
 let newsCache = { key: '', items: [], at: 0 };
 let newsBackoffUntil = 0;
 const symbolSearchCache = new Map();
+const LIVE_WATCHLIST = [
+  { symbol: 'EUR/USD', name: 'Euro / US Dollar', market: 'forex' },
+  { symbol: 'XAU/USD', name: 'Gold / US Dollar', market: 'gold' },
+  { symbol: 'USD/ZAR', name: 'US Dollar / South African Rand', market: 'forex' },
+  { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', market: 'crypto' },
+  { symbol: 'AAPL', name: 'Apple', market: 'shares' }
+];
+const SCAN_INTERVAL_MS = 15 * 60 * 1000;
+let liveScan = { instruments: [], lastUpdated: null, nextScanAt: null, scanning: false, error: null };
+let scanPromise = null;
+let lastScanStartedAt = 0;
 const mime = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -176,6 +187,46 @@ async function getNews(query) {
     const error=new Error('News providers are temporarily unavailable. Please try again in a few minutes.');error.status=503;throw error;
   }
 }
+async function runLiveScan(force = false) {
+  if (scanPromise) return scanPromise;
+  if (!force && lastScanStartedAt && Date.now() - lastScanStartedAt < SCAN_INTERVAL_MS && liveScan.lastUpdated) return liveScan;
+  scanPromise = (async () => {
+    liveScan = { ...liveScan, scanning: true, error: null };
+    lastScanStartedAt = Date.now();
+    const instruments = [];
+    for (const item of LIVE_WATCHLIST) {
+      try {
+        const series = await getSeries(item.symbol, '1h', 100);
+        const analysis = analyseSeries(series);
+        const quoteChange = await getQuote(item.symbol).catch(() => null);
+        instruments.push({
+          symbol: item.symbol, name: item.name, market: item.market, status: 'ok',
+          direction: analysis.direction, score: analysis.score,
+          lastPrice: analysis.lastPrice,
+          changePercent: quoteChange?.percentChange ?? null,
+          timestamp: analysis.timestamp, source: 'Twelve Data',
+          plan: analysis.plan, indicators: analysis.indicators
+        });
+      } catch (error) {
+        instruments.push({ symbol: item.symbol, name: item.name, market: item.market, status: 'unavailable', error: error.message });
+      }
+    }
+    const completedAt = new Date().toISOString();
+    liveScan = {
+      instruments, lastUpdated: completedAt,
+      nextScanAt: new Date(Date.now() + SCAN_INTERVAL_MS).toISOString(),
+      scanning: false,
+      successfulCount: instruments.filter(x => x.status === 'ok').length,
+      source: 'Twelve Data'
+    };
+    return liveScan;
+  })().catch(error => {
+    liveScan = { ...liveScan, scanning: false, error: error.message };
+    return liveScan;
+  }).finally(() => { scanPromise = null; });
+  return scanPromise;
+}
+
 async function route(req, res, url) {
   const p = url.pathname;
   if (p === '/api/health') return send(res, 200, { ok: true, service: 'NEXORA AI', time: new Date().toISOString() });
@@ -193,6 +244,10 @@ async function route(req, res, url) {
     broker: 'not_connected', automaticExecution: 'disabled',
     coverage: 'Only instruments returned by connected providers can be scanned; this is not an exhaustive all-world exchange feed.'
   });
+  if (p === '/api/scan/status') {
+    if (!liveScan.lastUpdated && !liveScan.scanning) runLiveScan(false);
+    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:15});
+  }
   if (p === '/api/market/search') {
     const q=url.searchParams.get('q')||'';
     if(q.trim().length<2)return send(res,200,{items:[],source:'Twelve Data'});
@@ -235,4 +290,4 @@ const server = http.createServer(async (req,res)=>{
     res.end(data);
   } catch { res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});res.end('Not found'); }
 });
-server.listen(PORT,'0.0.0.0',()=>console.log(`NEXORA AI listening on ${PORT}`));
+server.listen(PORT,'0.0.0.0',()=>{ console.log(`NEXORA AI listening on ${PORT}`); runLiveScan(true); setInterval(()=>runLiveScan(true),SCAN_INTERVAL_MS).unref(); });
