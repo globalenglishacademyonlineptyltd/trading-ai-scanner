@@ -41,7 +41,15 @@
       <div class="section-head"><div><span class="label">LIVE INTELLIGENCE · PROVIDER-BACKED</span><h2>Market analysis engine</h2></div><span class="safe-pill" id="intelligenceStatus">Checking connections…</span></div>
       <p class="section-intro">Fetches market candles from Twelve Data and calculates technical indicators. It does not claim global coverage: only instruments supported by the connected provider can be analysed.</p>
       <div class="planner-grid">
-        <label>Market symbol<input id="liveSymbol" value="XAU/USD" maxlength="40" /></label>
+        <label>Market symbol
+<select id="liveSymbol" aria-label="Choose a market symbol">
+<optgroup label="Forex"><option value="EUR/USD">EUR/USD — Euro / US Dollar</option><option value="GBP/USD">GBP/USD — British Pound / US Dollar</option><option value="USD/JPY">USD/JPY — US Dollar / Japanese Yen</option><option value="USD/CHF">USD/CHF — US Dollar / Swiss Franc</option><option value="AUD/USD">AUD/USD — Australian Dollar / US Dollar</option><option value="USD/CAD">USD/CAD — US Dollar / Canadian Dollar</option><option value="NZD/USD">NZD/USD — New Zealand Dollar / US Dollar</option></optgroup>
+<optgroup label="Metals & Energy"><option value="XAU/USD" selected>XAU/USD — Gold / US Dollar</option><option value="XAG/USD">XAG/USD — Silver / US Dollar</option><option value="WTI">WTI — Crude Oil</option><option value="BRENT">BRENT — Brent Crude</option></optgroup>
+<optgroup label="Indices"><option value="SPX">SPX — S&amp;P 500</option><option value="NDX">NDX — Nasdaq 100</option><option value="DJI">DJI — Dow Jones</option><option value="DAX">DAX — Germany 40</option><option value="FTSE">FTSE — UK 100</option></optgroup>
+<optgroup label="Crypto"><option value="BTC/USD">BTC/USD — Bitcoin</option><option value="ETH/USD">ETH/USD — Ethereum</option><option value="SOL/USD">SOL/USD — Solana</option><option value="XRP/USD">XRP/USD — XRP</option></optgroup>
+<optgroup label="Popular shares"><option value="AAPL">AAPL — Apple</option><option value="MSFT">MSFT — Microsoft</option><option value="NVDA">NVDA — NVIDIA</option><option value="TSLA">TSLA — Tesla</option><option value="AMZN">AMZN — Amazon</option></optgroup>
+</select></label>
+<label>Find more instruments<input id="symbolSearch" type="search" placeholder="Search symbol or company name…" autocomplete="off" /><small id="symbolSearchStatus" class="muted">Search the connected provider's instrument catalogue.</small><select id="symbolMatches" aria-label="Matching instruments" hidden></select></label>
         <label>Analysis timeframe<select id="liveInterval"><option value="1h">1 hour</option><option value="4h">4 hours</option><option value="1day">1 day</option><option value="15min">15 minutes</option></select></label>
       </div>
       <div class="planner-actions"><button class="primary" id="analyzeLive">Analyse live market</button><button class="secondary" id="refreshIntelligence">Refresh connection status</button></div>
@@ -49,7 +57,7 @@
       <div class="section-head"><div><span class="label">GLOBAL FINANCIAL NEWS</span><h2>News intelligence feed</h2></div><span class="muted" id="newsUpdated">Not loaded</span></div>
       <div class="chat-input"><input id="newsQuery" value="markets OR finance OR central bank OR inflation" /><button id="loadNews">Load news</button></div>
       <div id="newsFeed" class="opportunity-list"><p class="muted">News will appear here when the feed is available.</p></div>
-      <p class="notice">News is retrieved from GDELT. Headlines and tone are context, not a verified trading signal. Provider coverage, licensing, latency and rate limits apply.</p>
+      <p class="notice">News uses GDELT with a Google News RSS fallback if the primary feed is rate-limited. Headlines are context, not verified trading signals.</p>
     </section>
 
     <section class="card">
