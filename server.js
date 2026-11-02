@@ -247,7 +247,7 @@ async function route(req, res, url) {
     coverage: 'Only instruments returned by connected providers can be scanned; this is not an exhaustive all-world exchange feed.'
   });
   if (p === '/api/scan/status') {
-    if (!liveScan.lastUpdated && !liveScan.scanning) runLiveScan(false);
+    if (!liveScan.lastUpdated) await runLiveScan(false);
     return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:15});
   }
   if (p === '/api/market/search') {
@@ -288,7 +288,7 @@ const server = http.createServer(async (req,res)=>{
     const file=path.join(publicDir,pathname);
     if(!file.startsWith(publicDir)) return send(res,403,{error:'Forbidden'});
     const data=await readFile(file);
-    res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':pathname==='/index.html'?'no-cache':'public, max-age=3600'});
+    res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store, no-cache, must-revalidate'});
     res.end(data);
   } catch { res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});res.end('Not found'); }
 });
