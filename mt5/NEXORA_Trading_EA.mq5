@@ -12,7 +12,7 @@ CTrade trade;
 
 input string InpNexoraBaseUrl = "https://trading-ai-scanner-production-ac73.up.railway.app";
 input string InpConnectorToken = "";       // Set privately; never commit/share
-input string InpProviderSymbol = "EUR/USD"; // Must match NEXORA/Twelve Data symbol
+input string InpProviderSymbol = ""; // Leave blank to derive the provider symbol from this chart; optional explicit override
 input string InpSignalInterval = "1h";
 input bool   InpEnableAutoExecution = false; // OFF by default
 input double InpFixedLots = 0.01;
@@ -38,6 +38,48 @@ string EncodeSymbol(string value)
 {
    StringReplace(value,"/","%2F");
    StringReplace(value," ","%20");
+   return value;
+}
+
+// Resolve this chart's broker symbol to a provider symbol.
+// Deriv synthetic indices are deliberately excluded: Twelve Data does not
+// provide those instruments, so NEXORA must not substitute EUR/USD or another market.
+string ResolveProviderSymbol()
+{
+   if(StringLen(InpProviderSymbol)>0) return InpProviderSymbol;
+   string s=_Symbol;
+   string upper=s;
+   StringToUpper(upper);
+   if(StringFind(upper,"VOLATILITY")>=0 || StringFind(upper,"STEP INDEX")>=0 ||
+      StringFind(upper,"BOOM")>=0 || StringFind(upper,"CRASH")>=0 ||
+      StringFind(upper,"JUMP")>=0 || StringFind(upper,"RANGE BREAK")>=0 ||
+      StringFind(upper,"DEX")>=0 || StringFind(upper,"DERIVED")>=0)
+      return "";
+   // Common broker suffixes are removed only for known FX/metal/crypto pairs.
+   string compact=upper;
+   StringReplace(compact,".","");
+   StringReplace(compact,"_","");
+   StringReplace(compact,"-","");
+   string known[16]={"EURUSD","GBPUSD","USDJPY","USDCHF","USDCAD","AUDUSD","NZDUSD","USDZAR",
+                     "EURGBP","EURJPY","GBPJPY","XAUUSD","XAGUSD","BTCUSD","ETHUSD","LTCUSD"};
+   for(int i=0;i<ArraySize(known);i++)
+   {
+      if(StringFind(compact,known[i])==0)
+         return StringSubstr(known[i],0,3)+"/"+StringSubstr(known[i],3);
+   }
+   // Keep plain US ticker symbols as-is; unsupported broker-specific names will be rejected by provider.
+   if(StringLen(compact)>=1 && StringLen(compact)<=6 && StringFind(upper," ")<0)
+      return compact;
+   return "";
+}
+string CanonicalSymbol(string value)
+{
+   StringToUpper(value);
+   StringReplace(value,"/","");
+   StringReplace(value," ","");
+   StringReplace(value,".","");
+   StringReplace(value,"_","");
+   StringReplace(value,"-","");
    return value;
 }
 string JsonValue(string json,string key)
@@ -177,25 +219,42 @@ void ProcessSignal()
 {
    if(g_requestBusy) return;
    g_requestBusy=true;
-   string url=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal?symbol="+EncodeSymbol(InpProviderSymbol)+"&interval="+InpSignalInterval;
+   string providerSymbol=ResolveProviderSymbol();
+   if(providerSymbol=="")
+   {
+      g_lastStatus="No provider mapping for chart "+_Symbol+" (unsupported market)";
+      Comment("NEXORA MT5\\n",g_lastStatus,"\\nNo signal will be generated for a different instrument.");
+      g_requestBusy=false;
+      return;
+   }
+   string url=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal?symbol="+EncodeSymbol(providerSymbol)+"&interval="+InpSignalInterval;
    string json;
    if(!HttpGet(url,json)) { g_requestBusy=false; return; }
+   string responseSymbol=JsonValue(json,"symbol");
+   if(responseSymbol=="" || CanonicalSymbol(responseSymbol)!=CanonicalSymbol(providerSymbol))
+   {
+      g_lastStatus="Symbol mismatch blocked: chart "+_Symbol+", requested "+providerSymbol+", received "+responseSymbol;
+      Print("NEXORA SAFETY BLOCK: ",g_lastStatus);
+      Comment("NEXORA MT5\\n",g_lastStatus,"\\nNo alert or order generated.");
+      g_requestBusy=false;
+      return;
+   }
    string direction=JsonValue(json,"direction");
    string signalTime=JsonValue(json,"timestamp");
    double score=JsonDouble(json,"score");
    double entry=JsonDouble(json,"entry");
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
-   string signalKey=InpProviderSymbol+"|"+direction+"|"+signalTime;
+   string signalKey=providerSymbol+"|"+direction+"|"+signalTime;
    g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
    Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nProvider symbol: ",InpProviderSymbol,"\nLast signal: ",signalTime);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
    if(signalKey==g_lastSignalKey) { g_requestBusy=false; return; }
    g_lastSignalKey=signalKey;
-   Print("NEXORA signal: ",direction," ",InpProviderSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
+   Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
    if(!InpEnableAutoExecution)
    {
-      Alert("NEXORA ",direction," signal for ",InpProviderSymbol,". Review and place manually if appropriate.");
+      Alert("NEXORA ",direction," signal for ",providerSymbol,". Review and place manually if appropriate.");
       g_requestBusy=false;
       return;
    }
