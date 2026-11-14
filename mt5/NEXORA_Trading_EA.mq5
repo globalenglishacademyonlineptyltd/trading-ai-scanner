@@ -130,7 +130,7 @@ bool HttpPost(string url,string payload)
 }
 void SendHeartbeat()
 {
-   string account=LongToString((long)AccountInfoInteger(ACCOUNT_LOGIN));
+   string account=IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN));
    string payload="{\"account\":\""+account+"\",";
    payload+="\"server\":\""+AccountInfoString(ACCOUNT_SERVER)+"\",";
    payload+="\"company\":\""+AccountInfoString(ACCOUNT_COMPANY)+"\",";
