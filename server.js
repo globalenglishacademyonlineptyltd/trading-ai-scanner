@@ -7,17 +7,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
 const PORT = Number(process.env.PORT || 8080);
 
-// Safety: live order execution is deliberately unavailable in this release.
+// MT5 integration: signal delivery and authenticated terminal heartbeat.
+// Order execution happens inside the user's MT5 Expert Advisor; server-side auto mode stays OFF.
 let automaticTradingEnabled = false;
+let mt5LastHeartbeat = null;
 const brokerExecutionReady = false;
 const automationStatus = () => ({
   enabled: automaticTradingEnabled,
-  brokerConnected: false,
-  executionAvailable: brokerExecutionReady
+  brokerConnected: !!mt5LastHeartbeat && Date.now() - Date.parse(mt5LastHeartbeat.receivedAt) < 60000,
+  executionAvailable: false,
+  mode: 'MT5_EA_EXECUTION',
+  note: 'Order execution is controlled by the MT5 EA and its explicit AutoExecution input.'
 });
+function requireMt5Token(req) {
+  const expected = process.env.NEXORA_MT5_TOKEN || '';
+  const supplied = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '').trim();
+  if (expected.length < 32 || supplied.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
+  return mismatch === 0;
+}
 export function assertAutomaticExecutionAllowed() {
-  if (!automaticTradingEnabled) throw new Error('Automatic trading is OFF.');
-  if (!brokerExecutionReady) throw new Error('No verified broker adapter is connected.');
+  throw new Error('Server-side order execution is not implemented. MT5 EA execution is separately controlled in the terminal.');
 }
 
 const TWELVEDATA = 'https://api.twelvedata.com';
@@ -232,6 +243,41 @@ async function runLiveScan(force = false) {
 async function route(req, res, url) {
   const p = url.pathname;
   if (p === '/api/health') return send(res, 200, { ok: true, service: 'NEXORA AI', time: new Date().toISOString() });
+  if (p === '/api/mt5/heartbeat' && req.method === 'POST') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 8192) return send(res, 413, { error: 'Heartbeat payload too large.' }); }
+    let body; try { body = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON heartbeat.' }); }
+    if (typeof body.terminal_connected !== 'boolean' || typeof body.trade_allowed !== 'boolean') return send(res, 400, { error: 'Invalid MT5 heartbeat fields.' });
+    mt5LastHeartbeat = {
+      connected: body.terminal_connected,
+      tradeAllowed: body.trade_allowed && body.account_trade_allowed === true,
+      account: String(body.account || '').slice(0, 32),
+      server: String(body.server || '').slice(0, 100),
+      company: String(body.company || '').slice(0, 100),
+      currency: String(body.currency || '').slice(0, 12),
+      receivedAt: new Date().toISOString()
+    };
+    return send(res, 200, { ok: true, mode: 'MT5-EA', heartbeatReceivedAt: mt5LastHeartbeat.receivedAt });
+  }
+  if (p === '/api/mt5/status' && req.method === 'GET') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    const fresh = !!mt5LastHeartbeat && Date.now() - Date.parse(mt5LastHeartbeat.receivedAt) < 60000;
+    return send(res, 200, { connected: fresh && mt5LastHeartbeat.connected, heartbeat: fresh ? mt5LastHeartbeat : null, mode: 'MT5-EA', automaticTrading: 'controlled-in-terminal' });
+  }
+  if (p === '/api/mt5/signal' && req.method === 'GET') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    const symbol = url.searchParams.get('symbol');
+    if (!symbol) return send(res, 400, { error: 'symbol is required' });
+    const series = await getSeries(symbol, url.searchParams.get('interval') || '1h', 100);
+    const analysis = analyseSeries(series);
+    return send(res, 200, {
+      symbol: analysis.symbol, direction: analysis.direction, score: analysis.score,
+      timestamp: analysis.timestamp, entry: analysis.plan?.entry ?? null,
+      stopLoss: analysis.plan?.stopLoss ?? null, takeProfit: analysis.plan?.takeProfit ?? null,
+      interval: analysis.interval, indicators: analysis.indicators,
+      warnings: analysis.warnings || ['Technical-only signal; not a profit guarantee.']
+    });
+  }
   if (p === '/api/automation/status' && req.method === 'GET') return send(res, 200, automationStatus());
   if (p === '/api/automation/mode' && req.method === 'POST') {
     let raw=''; for await (const chunk of req) raw += chunk;
