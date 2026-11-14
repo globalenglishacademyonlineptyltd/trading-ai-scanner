@@ -21,7 +21,7 @@ const automationStatus = () => ({
 });
 function requireMt5Token(req) {
   const expected = process.env.NEXORA_MT5_TOKEN || '';
-  const supplied = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '').trim();
+  const supplied = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (expected.length < 32 || supplied.length !== expected.length) return false;
   let mismatch = 0;
   for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
