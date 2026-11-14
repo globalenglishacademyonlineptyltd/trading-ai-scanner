@@ -98,7 +98,7 @@ function twelveUrl(params) {
   // not selected through a "function=" query parameter.
   const endpoint = String(params.function || '').trim();
   if (!endpoint) throw new Error('A Twelve Data endpoint is required.');
-  const url = new URL('/' + endpoint.replace(/^\\/+/, ''), TWELVEDATA);
+  const url = new URL('/' + endpoint.replaceAll('/', ''), TWELVEDATA);
   for (const [k,v] of Object.entries(params)) {
     if (k === 'function' || v === undefined || v === null || v === '') continue;
     url.searchParams.set(k, String(v));
