@@ -36,7 +36,24 @@ const LIVE_WATCHLIST = [
 const SCAN_INTERVAL_MS = 15 * 60 * 1000;
 let liveScan = { instruments: [], lastUpdated: null, nextScanAt: null, scanning: false, error: null };
 let scanPromise = null;
+
 let lastScanStartedAt = 0;
+
+// MT5 connector state: heartbeat-only; no broker order execution.
+let mt5LastHeartbeat = null;
+function requireMt5Token(req) {
+  const expected = process.env.NEXORA_MT5_TOKEN || '';
+  const supplied = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '').trim();
+  if (expected.length < 24 || !supplied || supplied.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
+  return mismatch === 0;
+}
+function maskAccount(value) {
+  const s = String(value || '');
+  return s.length > 4 ? s.slice(0, 2) + '****' + s.slice(-2) : '****';
+}
+
 const mime = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -232,6 +249,33 @@ async function runLiveScan(force = false) {
 async function route(req, res, url) {
   const p = url.pathname;
   if (p === '/api/health') return send(res, 200, { ok: true, service: 'NEXORA AI', time: new Date().toISOString() });
+  if (p === '/api/mt5/heartbeat' && req.method === 'POST') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 8192) return send(res, 413, { error: 'Heartbeat payload too large.' }); }
+    let body; try { body = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON heartbeat.' }); }
+    if (typeof body.terminal_connected !== 'boolean' || typeof body.trade_allowed !== 'boolean') return send(res, 400, { error: 'Invalid MT5 heartbeat fields.' });
+    mt5LastHeartbeat = {
+      connected: body.terminal_connected,
+      tradeAllowed: body.trade_allowed && body.account_trade_allowed === true,
+      account: maskAccount(body.account),
+      server: String(body.server || '').slice(0, 100),
+      company: String(body.company || '').slice(0, 100),
+      currency: String(body.currency || '').slice(0, 12),
+      receivedAt: new Date().toISOString()
+    };
+    return send(res, 200, { ok: true, mode: 'demo-connection-check', executionAvailable: false, heartbeatReceivedAt: mt5LastHeartbeat.receivedAt });
+  }
+  if (p === '/api/mt5/status' && req.method === 'GET') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    const fresh = !!mt5LastHeartbeat && Date.now() - Date.parse(mt5LastHeartbeat.receivedAt) < 60000;
+    return send(res, 200, {
+      connected: fresh && mt5LastHeartbeat.connected,
+      heartbeat: fresh ? mt5LastHeartbeat : null,
+      mode: 'heartbeat-only',
+      executionAvailable: false,
+      automaticTrading: 'disabled'
+    });
+  }
   if (p === '/api/automation/status' && req.method === 'GET') return send(res, 200, automationStatus());
   if (p === '/api/automation/mode' && req.method === 'POST') {
     let raw=''; for await (const chunk of req) raw += chunk;
