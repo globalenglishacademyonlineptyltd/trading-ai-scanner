@@ -59,8 +59,24 @@ async function jsonFetch(url, timeoutMs = 12000) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } });
-    if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}`);
-    return await response.json();
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch {
+      const error = new Error(`Market-data provider returned a non-JSON response (HTTP ${response.status}).`);
+      error.providerStatus = response.status;
+      error.status = 502;
+      throw error;
+    }
+    if (!response.ok || data?.status === 'error' || data?.code) {
+      const providerStatus = Number(data?.code || response.status) || response.status;
+      const message = String(data?.message || `Provider returned HTTP ${response.status}`).slice(0, 240);
+      const error = new Error(message);
+      error.providerStatus = providerStatus;
+      error.status = 502;
+      throw error;
+    }
+    return data;
   } finally { clearTimeout(timer); }
 }
 function send(res, status, data) {
@@ -326,7 +342,18 @@ const server = http.createServer(async (req,res)=>{
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if(url.pathname.startsWith('/api/')) {
       try { await route(req,res,url); }
-      catch(error) { send(res,error.status||502,{error:error.message||'Provider request failed', providerStatus:error.status||502}); }
+      catch(error) {
+        // Log provider diagnostics without ever logging request URLs (which contain the API key).
+        console.error('NEXORA API request failed', {
+          path: url.pathname,
+          message: String(error.message || 'Provider request failed').slice(0, 240),
+          providerStatus: error.providerStatus || error.status || 502
+        });
+        send(res,error.status||502,{
+          error:error.message||'Provider request failed',
+          providerStatus:error.providerStatus||error.status||502
+        });
+      }
       return;
     }
     let pathname=decodeURIComponent(url.pathname);
