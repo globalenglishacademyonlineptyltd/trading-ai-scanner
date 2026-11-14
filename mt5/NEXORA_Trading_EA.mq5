@@ -128,9 +128,16 @@ bool HttpPost(string url,string payload)
    }
    return true;
 }
+string MaskLogin(long login)
+{
+   string value=IntegerToString(login);
+   int n=StringLen(value);
+   if(n<=4) return "****";
+   return StringSubstr(value,0,2)+"****"+StringSubstr(value,n-2,2);
+}
 void SendHeartbeat()
 {
-   string account=IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN));
+   string account=MaskLogin((long)AccountInfoInteger(ACCOUNT_LOGIN));
    string payload="{\"account\":\""+account+"\",";
    payload+="\"server\":\""+AccountInfoString(ACCOUNT_SERVER)+"\",";
    payload+="\"company\":\""+AccountInfoString(ACCOUNT_COMPANY)+"\",";
