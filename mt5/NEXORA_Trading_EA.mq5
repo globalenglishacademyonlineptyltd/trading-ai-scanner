@@ -62,7 +62,7 @@ bool HttpPostJson(string url,string payload,string &body)
    string responseHeaders;
    StringToCharArray(payload,data,0,WHOLE_ARRAY,CP_UTF8);
    if(ArraySize(data)>0) ArrayResize(data,ArraySize(data)-1);
-   string headers="Content-Type: application/json\\r\\nAccept: application/json\\r\\nAuthorization: Bearer "+InpConnectorToken+"\\r\\n";
+   string headers="Content-Type: application/json\r\nAccept: application/json\r\nAuthorization: Bearer "+InpConnectorToken+"\r\n";
    ResetLastError();
    int code=WebRequest("POST",url,headers,15000,data,result,responseHeaders);
    if(code!=200)
@@ -85,25 +85,24 @@ bool BuildLocalCandlePayload(string &payload)
       Print("NEXORA: ",g_lastStatus,". CopyRates=",copied);
       return false;
    }
-   payload="{\\"chartSymbol\\":\\""+_Symbol+"\\",";
-   payload+="\\"interval\\":\\""+CurrentChartInterval()+"\\",";
-   payload+="\\"candles\\":[";
+   payload="{\"chartSymbol\":\""+_Symbol+"\",";
+   payload+="\"interval\":\""+CurrentChartInterval()+"\",";
+   payload+="\"candles\":[";
    for(int i=0;i<copied;i++)
    {
       if(i>0) payload+=",";
-      payload+="{\\"time\\":\\""+TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES)+"\\",";
-      payload+="\\"open\\":"+DoubleToString(rates[i].open,_Digits)+",";
-      payload+="\\"high\\":"+DoubleToString(rates[i].high,_Digits)+",";
-      payload+="\\"low\\":"+DoubleToString(rates[i].low,_Digits)+",";
-      payload+="\\"close\\":"+DoubleToString(rates[i].close,_Digits)+",";
-      payload+="\\"volume\\":"+IntegerToString((long)rates[i].tick_volume)+"}";
+      payload+="{\"time\":\""+TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES)+"\",";
+      payload+="\"open\":"+DoubleToString(rates[i].open,_Digits)+",";
+      payload+="\"high\":"+DoubleToString(rates[i].high,_Digits)+",";
+      payload+="\"low\":"+DoubleToString(rates[i].low,_Digits)+",";
+      payload+="\"close\":"+DoubleToString(rates[i].close,_Digits)+",";
+      payload+="\"volume\":"+IntegerToString((long)rates[i].tick_volume)+"}";
    }
    payload+="]}";
    return true;
 }
 string ResolveProviderSymbol()
 {
-   if(StringLen(InpProviderSymbol)>0) return InpProviderSymbol;
    string s=_Symbol;
    string upper=s;
    StringToUpper(upper);
@@ -281,7 +280,7 @@ void ProcessSignal()
    if(providerSymbol=="")
    {
       g_lastStatus="No market-data mapping for chart "+_Symbol;
-      Comment("NEXORA MT5\\n",g_lastStatus,"\\nNo signal will be generated for a different instrument.");
+      Comment("NEXORA MT5\n",g_lastStatus,"\nNo signal will be generated for a different instrument.");
       g_requestBusy=false;
       return;
    }
@@ -303,7 +302,7 @@ void ProcessSignal()
    {
       g_lastStatus="Symbol mismatch blocked: chart "+_Symbol+", requested "+providerSymbol+", received "+responseSymbol;
       Print("NEXORA SAFETY BLOCK: ",g_lastStatus);
-      Comment("NEXORA MT5\\n",g_lastStatus,"\\nNo alert or order generated.");
+      Comment("NEXORA MT5\n",g_lastStatus,"\nNo alert or order generated.");
       g_requestBusy=false;
       return;
    }
