@@ -292,6 +292,7 @@ async function route(req, res, url) {
     const symbol = url.searchParams.get('symbol');
     if (!symbol) return send(res, 400, { error: 'symbol is required' });
     const series = await getSeries(symbol, url.searchParams.get('interval') || '1h', 100);
+    console.info('NEXORA MT5 signal instrument', { requestedSymbol: symbol, returnedSymbol: series.symbol, interval: series.interval });
     const analysis = analyseSeries(series);
     return send(res, 200, {
       symbol: analysis.symbol, direction: analysis.direction, score: analysis.score,
