@@ -274,28 +274,14 @@ void ProcessSignal()
 {
    if(g_requestBusy) return;
    g_requestBusy=true;
-   bool localSynthetic=IsDerivSyntheticSymbol(_Symbol);
-   string providerSymbol=localSynthetic ? _Symbol : ResolveProviderSymbol();
-   if(providerSymbol=="")
-   {
-      g_lastStatus="No market-data mapping for chart "+_Symbol;
-      Comment("NEXORA MT5\n",g_lastStatus,"\nNo signal will be generated for a different instrument.");
-      g_requestBusy=false;
-      return;
-   }
+   // ALL instruments use the connected MT5 terminal as the only price-data source.
+   // No Twelve Data/provider-symbol lookup is used by this Expert Advisor.
+   string providerSymbol=_Symbol;
+   string payload;
+   if(!BuildLocalCandlePayload(payload)) { g_requestBusy=false; return; }
    string json;
-   if(localSynthetic)
-   {
-      string payload;
-      if(!BuildLocalCandlePayload(payload)) { g_requestBusy=false; return; }
-      string localUrl=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-local";
-      if(!HttpPostJson(localUrl,payload,json)) { g_requestBusy=false; return; }
-   }
-   else
-   {
-      string url=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal?symbol="+EncodeSymbol(providerSymbol)+"&interval="+InpSignalInterval;
-      if(!HttpGet(url,json)) { g_requestBusy=false; return; }
-   }
+   string localUrl=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-local";
+   if(!HttpPostJson(localUrl,payload,json)) { g_requestBusy=false; return; }
    string responseSymbol=JsonValue(json,"symbol");
    if(responseSymbol=="" || CanonicalSymbol(responseSymbol)!=CanonicalSymbol(providerSymbol))
    {
@@ -313,7 +299,7 @@ void ProcessSignal()
    double tp=JsonDouble(json,"takeProfit");
    string signalKey=providerSymbol+"|"+direction+"|"+signalTime;
    g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
-   Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: ",localSynthetic?"Deriv MT5 chart":"Twelve Data","\nLast signal: ",signalTime);
+   Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: MT5 terminal chart","\nLast signal: ",signalTime);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
    if(signalKey==g_lastSignalKey) { g_requestBusy=false; return; }
    g_lastSignalKey=signalKey;
