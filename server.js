@@ -287,6 +287,36 @@ async function route(req, res, url) {
     const fresh = !!mt5LastHeartbeat && Date.now() - Date.parse(mt5LastHeartbeat.receivedAt) < 60000;
     return send(res, 200, { connected: fresh && mt5LastHeartbeat.connected, heartbeat: fresh ? mt5LastHeartbeat : null, mode: 'MT5-EA', automaticTrading: 'controlled-in-terminal' });
   }
+  if (p === '/api/mt5/signal-local' && req.method === 'POST') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    let raw = '';
+    for await (const chunk of req) { raw += chunk; if (raw.length > 65536) return send(res, 413, { error: 'Local candle payload too large.' }); }
+    let body;
+    try { body = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON candle payload.' }); }
+    const symbol = String(body.chartSymbol || '').trim();
+    const interval = String(body.interval || 'chart').trim();
+    if (!symbol || symbol.length > 100 || !Array.isArray(body.candles) || body.candles.length < 60 || body.candles.length > 500)
+      return send(res, 400, { error: 'Expected chartSymbol and between 60 and 500 closed MT5 candles.' });
+    const candles = body.candles.map(c => ({
+      time: String(c.time || ''),
+      open: safeNumber(c.open), high: safeNumber(c.high),
+      low: safeNumber(c.low), close: safeNumber(c.close),
+      volume: safeNumber(c.volume ?? 0)
+    })).filter(c => c.time && c.open !== null && c.high !== null && c.low !== null && c.close !== null &&
+      c.high >= Math.max(c.open, c.close, c.low) && c.low <= Math.min(c.open, c.close, c.high));
+    if (candles.length < 60) return send(res, 400, { error: 'Insufficient valid closed MT5 candles after validation.' });
+    const series = { symbol, interval, candles, source: 'Deriv MT5 chart data' };
+    const analysis = analyseSeries(series);
+    console.info('NEXORA local MT5 analysis', { chartSymbol: symbol, candleCount: candles.length, interval });
+    return send(res, 200, {
+      symbol: analysis.symbol, direction: analysis.direction, score: analysis.score,
+      timestamp: analysis.timestamp, entry: analysis.plan?.entry ?? null,
+      stopLoss: analysis.plan?.stopLoss ?? null, takeProfit: analysis.plan?.takeProfit ?? null,
+      interval: analysis.interval, indicators: analysis.indicators,
+      source: analysis.source,
+      warnings: [...(analysis.warnings || []), 'Analysis uses closed candles supplied by the connected MT5 terminal; verify data freshness and broker contract rules.']
+    });
+  }
   if (p === '/api/mt5/signal' && req.method === 'GET') {
     if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
     const symbol = url.searchParams.get('symbol');
