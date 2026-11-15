@@ -44,6 +44,63 @@ string EncodeSymbol(string value)
 // Resolve this chart's broker symbol to a provider symbol.
 // Deriv synthetic indices are deliberately excluded: Twelve Data does not
 // provide those instruments, so NEXORA must not substitute EUR/USD or another market.
+bool IsDerivSyntheticSymbol(string symbol)
+{
+   string upper=symbol;
+   StringToUpper(upper);
+   string markers[9]={"VOLATILITY","STEP INDEX","BOOM","CRASH","JUMP","RANGE BREAK","DEX","DERIVED","SYNTHETIC"};
+   for(int i=0;i<ArraySize(markers);i++) if(StringFind(upper,markers[i])>=0) return true;
+   return false;
+}
+string CurrentChartInterval()
+{
+   return EnumToString(_Period);
+}
+bool HttpPostJson(string url,string payload,string &body)
+{
+   char data[],result[];
+   string responseHeaders;
+   StringToCharArray(payload,data,0,WHOLE_ARRAY,CP_UTF8);
+   if(ArraySize(data)>0) ArrayResize(data,ArraySize(data)-1);
+   string headers="Content-Type: application/json\\r\\nAccept: application/json\\r\\nAuthorization: Bearer "+InpConnectorToken+"\\r\\n";
+   ResetLastError();
+   int code=WebRequest("POST",url,headers,15000,data,result,responseHeaders);
+   if(code!=200)
+   {
+      g_lastStatus="Local MT5 analysis HTTP "+IntegerToString(code)+" / MT5 error "+IntegerToString(GetLastError());
+      Print(g_lastStatus);
+      return false;
+   }
+   body=CharArrayToString(result,0,WHOLE_ARRAY,CP_UTF8);
+   return true;
+}
+bool BuildLocalCandlePayload(string &payload)
+{
+   MqlRates rates[];
+   ArraySetAsSeries(rates,false);
+   int copied=CopyRates(_Symbol,_Period,1,100,rates); // closed candles only; excludes the forming bar
+   if(copied<60)
+   {
+      g_lastStatus="Waiting for at least 60 closed chart candles for "+_Symbol;
+      Print("NEXORA: ",g_lastStatus,". CopyRates=",copied);
+      return false;
+   }
+   payload="{\\"chartSymbol\\":\\""+_Symbol+"\\",";
+   payload+="\\"interval\\":\\""+CurrentChartInterval()+"\\",";
+   payload+="\\"candles\\":[";
+   for(int i=0;i<copied;i++)
+   {
+      if(i>0) payload+=",";
+      payload+="{\\"time\\":\\""+TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES)+"\\",";
+      payload+="\\"open\\":"+DoubleToString(rates[i].open,_Digits)+",";
+      payload+="\\"high\\":"+DoubleToString(rates[i].high,_Digits)+",";
+      payload+="\\"low\\":"+DoubleToString(rates[i].low,_Digits)+",";
+      payload+="\\"close\\":"+DoubleToString(rates[i].close,_Digits)+",";
+      payload+="\\"volume\\":"+IntegerToString((long)rates[i].tick_volume)+"}";
+   }
+   payload+="]}";
+   return true;
+}
 string ResolveProviderSymbol()
 {
    if(StringLen(InpProviderSymbol)>0) return InpProviderSymbol;
@@ -219,17 +276,28 @@ void ProcessSignal()
 {
    if(g_requestBusy) return;
    g_requestBusy=true;
-   string providerSymbol=ResolveProviderSymbol();
+   bool localSynthetic=IsDerivSyntheticSymbol(_Symbol);
+   string providerSymbol=localSynthetic ? _Symbol : ResolveProviderSymbol();
    if(providerSymbol=="")
    {
-      g_lastStatus="No provider mapping for chart "+_Symbol+" (unsupported market)";
+      g_lastStatus="No market-data mapping for chart "+_Symbol;
       Comment("NEXORA MT5\\n",g_lastStatus,"\\nNo signal will be generated for a different instrument.");
       g_requestBusy=false;
       return;
    }
-   string url=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal?symbol="+EncodeSymbol(providerSymbol)+"&interval="+InpSignalInterval;
    string json;
-   if(!HttpGet(url,json)) { g_requestBusy=false; return; }
+   if(localSynthetic)
+   {
+      string payload;
+      if(!BuildLocalCandlePayload(payload)) { g_requestBusy=false; return; }
+      string localUrl=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-local";
+      if(!HttpPostJson(localUrl,payload,json)) { g_requestBusy=false; return; }
+   }
+   else
+   {
+      string url=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal?symbol="+EncodeSymbol(providerSymbol)+"&interval="+InpSignalInterval;
+      if(!HttpGet(url,json)) { g_requestBusy=false; return; }
+   }
    string responseSymbol=JsonValue(json,"symbol");
    if(responseSymbol=="" || CanonicalSymbol(responseSymbol)!=CanonicalSymbol(providerSymbol))
    {
@@ -247,7 +315,7 @@ void ProcessSignal()
    double tp=JsonDouble(json,"takeProfit");
    string signalKey=providerSymbol+"|"+direction+"|"+signalTime;
    g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
-   Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nProvider symbol: ",InpProviderSymbol,"\nLast signal: ",signalTime);
+   Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: ",localSynthetic?"Deriv MT5 chart":"Twelve Data","\nLast signal: ",signalTime);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
    if(signalKey==g_lastSignalKey) { g_requestBusy=false; return; }
    g_lastSignalKey=signalKey;
