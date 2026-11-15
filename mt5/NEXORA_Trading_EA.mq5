@@ -41,9 +41,8 @@ string EncodeSymbol(string value)
    return value;
 }
 
-// Resolve this chart's broker symbol to a provider symbol.
-// Deriv synthetic indices are deliberately excluded: Twelve Data does not
-// provide those instruments, so NEXORA must not substitute EUR/USD or another market.
+// Deriv synthetic indices use closed candles from the active MT5 chart.
+// Other supported instruments use their mapped Twelve Data provider symbol.
 bool IsDerivSyntheticSymbol(string symbol)
 {
    string upper=symbol;
