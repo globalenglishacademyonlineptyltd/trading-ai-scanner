@@ -27,6 +27,8 @@ string g_lastSignalKey = "";
 datetime g_lastHeartbeat = 0;
 string g_lastStatus = "Starting";
 bool g_requestBusy = false;
+string g_lastChartSymbol = "";
+ENUM_TIMEFRAMES g_lastChartPeriod = PERIOD_CURRENT;
 
 string TrimSlash(string value)
 {
@@ -54,6 +56,20 @@ bool IsDerivSyntheticSymbol(string symbol)
 string CurrentChartInterval()
 {
    return EnumToString(_Period);
+}
+// Detect symbol/timeframe changes on this chart and discard the previous chart's signal state.
+bool RefreshChartContext()
+{
+   if(g_lastChartSymbol==_Symbol && g_lastChartPeriod==_Period) return false;
+   string previousSymbol=g_lastChartSymbol;
+   g_lastChartSymbol=_Symbol;
+   g_lastChartPeriod=_Period;
+   g_lastSignalKey="";
+   g_lastStatus="Loading fresh MT5 data for "+_Symbol+" ("+CurrentChartInterval()+")";
+   Print("NEXORA chart context changed: ",previousSymbol," -> ",_Symbol,
+         ", timeframe=",CurrentChartInterval(),". Previous signal state cleared.");
+   Comment("NEXORA MT5\\n",g_lastStatus,"\\nData source: MT5 terminal chart\\nNo previous-chart signal is being carried over.");
+   return true;
 }
 bool HttpPostJson(string url,string payload,string &body)
 {
@@ -297,7 +313,7 @@ void ProcessSignal()
    double entry=JsonDouble(json,"entry");
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
-   string signalKey=providerSymbol+"|"+direction+"|"+signalTime;
+   string signalKey=providerSymbol+"|"+CurrentChartInterval()+"|"+direction+"|"+signalTime;
    g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
    Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: MT5 terminal chart","\nLast signal: ",signalTime);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
@@ -369,6 +385,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    trade.SetExpertMagicNumber(InpMagicNumber);
+   g_lastChartSymbol=_Symbol;
+   g_lastChartPeriod=_Period;
    EventSetTimer(MathMax(15,InpPollSeconds));
    SendHeartbeat();
    ProcessSignal();
@@ -376,9 +394,19 @@ int OnInit()
 }
 void OnTimer()
 {
+   if(RefreshChartContext())
+   {
+      ProcessSignal();
+      return;
+   }
    if(TimeCurrent()-g_lastHeartbeat>=30) SendHeartbeat();
    ProcessSignal();
    ManageTrailingStop();
+}
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+{
+   if(id==CHARTEVENT_CHART_CHANGE && RefreshChartContext())
+      ProcessSignal();
 }
 void OnDeinit(const int reason)
 {
