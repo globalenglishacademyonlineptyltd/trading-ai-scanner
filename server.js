@@ -305,7 +305,7 @@ async function route(req, res, url) {
     })).filter(c => c.time && c.open !== null && c.high !== null && c.low !== null && c.close !== null &&
       c.high >= Math.max(c.open, c.close, c.low) && c.low <= Math.min(c.open, c.close, c.high));
     if (candles.length < 60) return send(res, 400, { error: 'Insufficient valid closed MT5 candles after validation.' });
-    const series = { symbol, interval, candles, source: 'Deriv MT5 chart data' };
+    const series = { symbol, interval, candles, source: 'MT5 terminal chart data' };
     const analysis = analyseSeries(series);
     console.info('NEXORA local MT5 analysis', { chartSymbol: symbol, candleCount: candles.length, interval });
     return send(res, 200, {
