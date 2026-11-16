@@ -334,8 +334,9 @@ void ProcessSignal()
    double tp=JsonDouble(json,"takeProfit");
    string signalKey=providerSymbol+"|"+CurrentChartInterval()+"|"+direction+"|"+signalTime;
    string interval=CurrentChartInterval();
-   double avgRange=JsonDouble(json,"averageRange14");
    double riskDistance=(entry>0 && sl>0)?MathAbs(entry-sl):0;
+   // Current server plan sets SL at 1.5 x average candle range; derive the range from returned SL.
+   double avgRange=(riskDistance>0)?riskDistance/1.5:0;
    double rewardDistance=(entry>0 && tp>0)?MathAbs(tp-entry):0;
    double rr=(riskDistance>0)?rewardDistance/riskDistance:0;
    bool validPlan=(entry>0 && sl>0 && tp>0 && avgRange>0 &&
