@@ -20,7 +20,7 @@ input int    InpMaxOpenPositions = 1;
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 300; // Signal analysis/notification interval: 5 minutes
+input int    InpPollSeconds = 600; // Signal analysis/notification interval: 10 minutes
 input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
@@ -87,7 +87,7 @@ void AppendSignalHistory(string direction,double score,double entry,double sl,do
    FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(_Period),
              direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
              DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime,
-              notificationSent?"YES - cooldown elapsed":"NO - 5 minute cooldown");
+              notificationSent?"YES - cooldown elapsed":"NO - 10 minute cooldown");
    FileClose(handle);
 }
 
@@ -284,23 +284,50 @@ void ManageTrailingStop()
    long type=PositionGetInteger(POSITION_TYPE);
    double oldSL=PositionGetDouble(POSITION_SL);
    double tp=PositionGetDouble(POSITION_TP);
+   double openPrice=PositionGetDouble(POSITION_PRICE_OPEN);
    double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
    int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
    double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   if(point<=0 || openPrice<=0) return;
+
+   // Preserve the original stop distance per position ticket. This prevents
+   // the +1R activation threshold from moving as the trailing stop advances.
+   ulong ticket=(ulong)PositionGetInteger(POSITION_TICKET);
+   string riskKey="NEXORA_RISK_"+IntegerToString((long)ticket);
+   double initialRisk=0.0;
+   if(GlobalVariableCheck(riskKey))
+      initialRisk=GlobalVariableGet(riskKey);
+   else if(oldSL>0)
+   {
+      initialRisk=MathAbs(openPrice-oldSL);
+      if(initialRisk>0) GlobalVariableSet(riskKey,initialRisk);
+   }
+   if(initialRisk<=0) return;
+
+   double favourableMove=(type==POSITION_TYPE_BUY)?bid-openPrice:openPrice-ask;
+   // Do not trail until the position has moved at least +1R in its favour.
+   if(favourableMove<initialRisk) return;
+
    double distance=InpTrailingStopPoints*point;
-   double step= MathMax(1,InpTrailingStepPoints)*point;
+   double step=MathMax(1,InpTrailingStepPoints)*point;
    if(type==POSITION_TYPE_BUY)
    {
       double candidate=NormalizeDouble(bid-distance,digits);
-      if(candidate>0 && (oldSL==0 || candidate>oldSL+step) && candidate<bid)
-         trade.PositionModify(_Symbol,candidate,tp);
+      if(candidate>openPrice && (oldSL==0 || candidate>oldSL+step) && candidate<bid)
+      {
+         if(!trade.PositionModify(_Symbol,candidate,tp))
+            Print("NEXORA trailing-stop update failed: ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+      }
    }
    else if(type==POSITION_TYPE_SELL)
    {
       double candidate=NormalizeDouble(ask+distance,digits);
-      if(candidate>ask && (oldSL==0 || candidate<oldSL-step))
-         trade.PositionModify(_Symbol,candidate,tp);
+      if(candidate<openPrice && (oldSL==0 || candidate<oldSL-step) && candidate>ask)
+      {
+         if(!trade.PositionModify(_Symbol,candidate,tp))
+            Print("NEXORA trailing-stop update failed: ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+      }
    }
 }
 void ProcessSignal()
@@ -395,14 +422,14 @@ void ProcessSignal()
    string cooldownName=AlertCooldownVariable();
    datetime lastAlert=0;
    if(GlobalVariableCheck(cooldownName)) lastAlert=(datetime)GlobalVariableGet(cooldownName);
-   bool notifyUser=(lastAlert==0 || TimeCurrent()-lastAlert>=300);
+   bool notifyUser=(lastAlert==0 || TimeCurrent()-lastAlert>=600);
    if(notifyUser)
    {
       GlobalVariableSet(cooldownName,(double)TimeCurrent());
       // Desktop pop-ups are disabled; the full trade plan is displayed on the chart.
    }
    else
-      Print("NEXORA: signal for ",providerSymbol," logged; repeat alert suppressed by the 5-minute alert limit.");
+      Print("NEXORA: signal for ",providerSymbol," logged; repeat alert suppressed by the 10-minute alert limit.");
    AppendSignalHistory(direction,score,entry,sl,tp,signalTime,notifyUser);
    if(!InpEnableAutoExecution)
    {
