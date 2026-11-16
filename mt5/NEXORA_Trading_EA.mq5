@@ -71,7 +71,7 @@ bool LoadConnectorToken()
 }
 string AlertCooldownVariable()
 {
-   string key="NEXORA_ALERT_"+_Symbol+"_"+EnumToString(_Period);
+   string key="NEXORA_ALERT_"+_Symbol;
    if(StringLen(key)>63) key=StringSubstr(key,0,63);
    return key;
 }
@@ -379,9 +379,12 @@ void ProcessSignal()
    g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
    Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: MT5 terminal chart","\nLast signal: ",signalTime);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
-   if(signalKey==g_lastSignalKey) { g_requestBusy=false; return; }
-   g_lastSignalKey=signalKey;
-   Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
+   bool newSignal=(signalKey!=g_lastSignalKey);
+   if(newSignal)
+   {
+      g_lastSignalKey=signalKey;
+      Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
+   }
    string cooldownName=AlertCooldownVariable();
    datetime lastAlert=0;
    if(GlobalVariableCheck(cooldownName)) lastAlert=(datetime)GlobalVariableGet(cooldownName);
@@ -400,6 +403,7 @@ void ProcessSignal()
       g_requestBusy=false;
       return;
    }
+   if(!newSignal) { g_requestBusy=false; return; }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
    {
       Print("NEXORA: trading permissions are disabled. No order sent.");
