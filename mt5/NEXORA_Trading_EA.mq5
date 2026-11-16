@@ -356,13 +356,11 @@ void ProcessSignal()
    panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
    Comment(panel);
-   Print("NEXORA 5-MINUTE UPDATE | ",_Symbol," | ",interval,
-         " | ",direction," | score=",DoubleToString(score,0),"/100",
-         " | Entry=",DoubleToString(entry,_Digits),
-         " | SL=",DoubleToString(sl,_Digits),
-         " | TP=",DoubleToString(tp,_Digits),
-         " | candle=",signalTime,
-         " | auto=",InpEnableAutoExecution?"ON":"OFF");
+   Print("NEXORA | ",_Symbol," ",interval," | ",direction," ",DoubleToString(score,0),"/100",
+         " | E ",DoubleToString(entry,_Digits),
+         " SL ",DoubleToString(sl,_Digits),
+         " TP ",DoubleToString(tp,_Digits),
+         " | AUTO ",InpEnableAutoExecution?"ON":"OFF");
    if(direction!="BUY" && direction!="SELL")
    {
       Comment("NEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
@@ -370,10 +368,8 @@ void ProcessSignal()
               "\nAnalysed closed candle: ",signalTime,
               "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
               "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
-      Print("NEXORA 5-MINUTE UPDATE | ",_Symbol," | ",interval,
-            " | WAIT | score=",DoubleToString(score,0),"/100",
-            " | Entry=N/A | SL=N/A | TP=N/A | candle=",signalTime,
-            " | No trade: technical conditions are not aligned.");
+      Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
+            " | E -- SL -- TP -- | NO TRADE");
       g_requestBusy=false; return;
    }
    if(!validPlan)
@@ -383,12 +379,11 @@ void ProcessSignal()
               " | Score: ",DoubleToString(score,0),"/100",
               "\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
               "\nAnalysed candle: ",signalTime);
-      Print("NEXORA 5-MINUTE UPDATE | ",_Symbol," | ",interval,
-            " | REJECTED INVALID PLAN | score=",DoubleToString(score,0),
-            " | Entry=",DoubleToString(entry,_Digits),
-            " | SL=",DoubleToString(sl,_Digits),
-            " | TP=",DoubleToString(tp,_Digits),
-            " | No order sent.");
+      Print("NEXORA | ",_Symbol," ",interval," | REJECTED INVALID PLAN",
+            " | E ",DoubleToString(entry,_Digits),
+            " SL ",DoubleToString(sl,_Digits),
+            " TP ",DoubleToString(tp,_Digits),
+            " | NO ORDER");
       g_requestBusy=false; return;
    }
    bool newSignal=(signalKey!=g_lastSignalKey);
