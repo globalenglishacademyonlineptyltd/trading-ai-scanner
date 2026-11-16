@@ -369,10 +369,11 @@ string LocalTimeframeDirection(ENUM_TIMEFRAMES timeframe)
 }
 bool ConfirmAllTimeframes(string direction,string &details)
 {
-   ENUM_TIMEFRAMES frames[5]={PERIOD_M5,PERIOD_M15,PERIOD_H1,PERIOD_H4,PERIOD_D1};
-   string labels[5]={"M5","M15","H1","H4","D1"};
+   // Six-timeframe confirmation: every timeframe must agree with the chart's primary signal.
+   ENUM_TIMEFRAMES frames[6]={PERIOD_M5,PERIOD_M15,PERIOD_M30,PERIOD_H1,PERIOD_H4,PERIOD_D1};
+   string labels[6]={"M5","M15","M30","H1","H4","D1"};
    details="";
-   for(int i=0;i<5;i++)
+   for(int i=0;i<6;i++)
    {
       string found=LocalTimeframeDirection(frames[i]);
       if(details!="") details+=" | ";
@@ -462,8 +463,8 @@ void ProcessSignal()
    {
       Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA MULTI-TIMEFRAME CHECK\nInstrument: ",_Symbol,
               "\nPrimary signal: ",direction," (",DoubleToString(score,0),"/100)",
-              "\nM5 | M15 | H1 | H4 | D1: ",timeframeChecks,
-              "\nDecision: WAIT - all five timeframes must agree.",
+              "\nM5 | M15 | M30 | H1 | H4 | D1: ",timeframeChecks,
+              "\nDecision: WAIT - all six timeframes must agree.",
               "\nNo alert or order generated.");
       Print("NEXORA MTF BLOCK: ",_Symbol," ",direction," rejected; ",timeframeChecks);
       AppendSignalHistory("WAIT (MTF conflict)",score,entry,sl,tp,signalTime,false);
