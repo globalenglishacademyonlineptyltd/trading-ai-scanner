@@ -20,7 +20,7 @@ input int    InpMaxOpenPositions = 1;
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 600; // Signal analysis/notification interval: 10 minutes
+input int    InpPollSeconds = 120; // Refresh signals and chart message block every 2 minutes
 input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
@@ -30,6 +30,7 @@ const string NEXORA_TOKEN_FILE = "NEXORA_MT5_Connector.token";
 const string NEXORA_HISTORY_FILE = "NEXORA_Signal_History.csv";
 datetime g_lastHeartbeat = 0;
 string g_lastStatus = "Starting";
+string g_lastRefreshText = "Not refreshed yet";
 bool g_requestBusy = false;
 string g_lastChartSymbol = "";
 ENUM_TIMEFRAMES g_lastChartPeriod = PERIOD_CURRENT;
@@ -126,8 +127,10 @@ bool HttpPostJson(string url,string payload,string &body)
    int code=WebRequest("POST",url,headers,15000,data,result,responseHeaders);
    if(code!=200)
    {
-      g_lastStatus="Local MT5 analysis HTTP "+IntegerToString(code)+" / MT5 error "+IntegerToString(GetLastError());
-      Print(g_lastStatus);
+      g_lastStatus="Refresh failed: HTTP "+IntegerToString(code)+" / MT5 error "+IntegerToString(GetLastError());
+      Print("NEXORA ",g_lastStatus);
+      Comment("NEXORA UPDATE | ",TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),
+              "\n",g_lastStatus,"\nPrevious signal is not being presented as a fresh update.");
       return false;
    }
    body=CharArrayToString(result,0,WHOLE_ARRAY,CP_UTF8);
@@ -386,10 +389,16 @@ void ProcessSignal()
    // No Twelve Data/provider-symbol lookup is used by this Expert Advisor.
    string providerSymbol=_Symbol;
    string payload;
-   if(!BuildLocalCandlePayload(payload)) { g_requestBusy=false; return; }
+   if(!BuildLocalCandlePayload(payload))
+   {
+      Comment("NEXORA UPDATE | ",TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),
+              "\nRefresh unavailable: ",g_lastStatus);
+      g_requestBusy=false; return;
+   }
    string json;
    string localUrl=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-local";
    if(!HttpPostJson(localUrl,payload,json)) { g_requestBusy=false; return; }
+   g_lastRefreshText=TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS);
    string responseSymbol=JsonValue(json,"symbol");
    if(responseSymbol=="" || CanonicalSymbol(responseSymbol)!=CanonicalSymbol(providerSymbol))
    {
@@ -417,7 +426,8 @@ void ProcessSignal()
                     (direction=="SELL" && sl>entry && tp<entry)));
    double trailActivation=0;
    if(validPlan) trailActivation=(direction=="BUY")?entry+riskDistance:entry-riskDistance;
-   string panel="NEXORA TRADE PLAN\n";
+   string panel="NEXORA UPDATE | "+g_lastRefreshText+"\n";
+   panel+="NEXORA TRADE PLAN\n";
    panel+="Instrument: "+_Symbol+" | Timeframe: "+interval+"\n";
    panel+="Signal: "+direction+" | Technical score: "+DoubleToString(score,0)+"/100\n";
    panel+="Analysed closed candle: "+signalTime+"\n";
@@ -438,7 +448,7 @@ void ProcessSignal()
          " | AUTO ",InpEnableAutoExecution?"ON":"OFF");
    if(direction!="BUY" && direction!="SELL")
    {
-      Comment("NEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
+      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
               "\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
               "\nAnalysed closed candle: ",signalTime,
               "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
@@ -450,7 +460,7 @@ void ProcessSignal()
    string timeframeChecks="";
    if(!ConfirmAllTimeframes(direction,timeframeChecks))
    {
-      Comment("NEXORA MULTI-TIMEFRAME CHECK\nInstrument: ",_Symbol,
+      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA MULTI-TIMEFRAME CHECK\nInstrument: ",_Symbol,
               "\nPrimary signal: ",direction," (",DoubleToString(score,0),"/100)",
               "\nM5 | M15 | H1 | H4 | D1: ",timeframeChecks,
               "\nDecision: WAIT - all five timeframes must agree.",
@@ -462,7 +472,7 @@ void ProcessSignal()
    if(!validPlan)
    {
       g_lastStatus="INVALID TRADE PLAN - levels failed validation";
-      Comment("NEXORA SAFETY WARNING\n",_Symbol," | ",interval,"\nSignal: ",direction,
+      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA SAFETY WARNING\n",_Symbol," | ",interval,"\nSignal: ",direction,
               " | Score: ",DoubleToString(score,0),"/100",
               "\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
               "\nAnalysed candle: ",signalTime);
