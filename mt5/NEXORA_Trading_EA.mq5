@@ -84,12 +84,12 @@ void AppendSignalHistory(string direction,double score,double entry,double sl,do
       return;
    }
    if(FileSize(handle)==0)
-      FileWrite(handle,"Check time","Chart symbol","Timeframe","Direction","Score","Entry","Stop loss","Take profit","Signal candle time","Pop-up sent");
+      FileWrite(handle,"Check time","Chart symbol","Timeframe","Direction","Score","Entry","Stop loss","Take profit","Signal candle time","Alert cooldown eligible");
    FileSeek(handle,0,SEEK_END);
    FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(_Period),
              direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
              DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime,
-              notificationSent?"YES":"NO - 10 minute cooldown");
+              notificationSent?"YES - cooldown elapsed":"NO - 10 minute cooldown");
    FileClose(handle);
 }
 
@@ -98,23 +98,6 @@ string TrimSlash(string value)
    while(StringLen(value)>0 && StringSubstr(value,StringLen(value)-1,1)=="/")
       value=StringSubstr(value,0,StringLen(value)-1);
    return value;
-}
-string EncodeSymbol(string value)
-{
-   StringReplace(value,"/","%2F");
-   StringReplace(value," ","%20");
-   return value;
-}
-
-// Deriv synthetic indices use closed candles from the active MT5 chart.
-// Other supported instruments use their mapped Twelve Data provider symbol.
-bool IsDerivSyntheticSymbol(string symbol)
-{
-   string upper=symbol;
-   StringToUpper(upper);
-   string markers[9]={"VOLATILITY","STEP INDEX","BOOM","CRASH","JUMP","RANGE BREAK","DEX","DERIVED","SYNTHETIC"};
-   for(int i=0;i<ArraySize(markers);i++) if(StringFind(upper,markers[i])>=0) return true;
-   return false;
 }
 string CurrentChartInterval()
 {
@@ -178,33 +161,6 @@ bool BuildLocalCandlePayload(string &payload)
    }
    payload+="]}";
    return true;
-}
-string ResolveProviderSymbol()
-{
-   string s=_Symbol;
-   string upper=s;
-   StringToUpper(upper);
-   if(StringFind(upper,"VOLATILITY")>=0 || StringFind(upper,"STEP INDEX")>=0 ||
-      StringFind(upper,"BOOM")>=0 || StringFind(upper,"CRASH")>=0 ||
-      StringFind(upper,"JUMP")>=0 || StringFind(upper,"RANGE BREAK")>=0 ||
-      StringFind(upper,"DEX")>=0 || StringFind(upper,"DERIVED")>=0)
-      return "";
-   // Common broker suffixes are removed only for known FX/metal/crypto pairs.
-   string compact=upper;
-   StringReplace(compact,".","");
-   StringReplace(compact,"_","");
-   StringReplace(compact,"-","");
-   string known[16]={"EURUSD","GBPUSD","USDJPY","USDCHF","USDCAD","AUDUSD","NZDUSD","USDZAR",
-                     "EURGBP","EURJPY","GBPJPY","XAUUSD","XAGUSD","BTCUSD","ETHUSD","LTCUSD"};
-   for(int i=0;i<ArraySize(known);i++)
-   {
-      if(StringFind(compact,known[i])==0)
-         return StringSubstr(known[i],0,3)+"/"+StringSubstr(known[i],3);
-   }
-   // Keep plain US ticker symbols as-is; unsupported broker-specific names will be rejected by provider.
-   if(StringLen(compact)>=1 && StringLen(compact)<=6 && StringFind(upper," ")<0)
-      return compact;
-   return "";
 }
 string CanonicalSymbol(string value)
 {
@@ -377,9 +333,48 @@ void ProcessSignal()
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
    string signalKey=providerSymbol+"|"+CurrentChartInterval()+"|"+direction+"|"+signalTime;
-   g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
-   Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: MT5 terminal chart","\nLast signal: ",signalTime);
-   if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
+   string interval=CurrentChartInterval();
+   double avgRange=JsonDouble(json,"averageRange14");
+   double riskDistance=(entry>0 && sl>0)?MathAbs(entry-sl):0;
+   double rewardDistance=(entry>0 && tp>0)?MathAbs(tp-entry):0;
+   double rr=(riskDistance>0)?rewardDistance/riskDistance:0;
+   bool validPlan=(entry>0 && sl>0 && tp>0 && avgRange>0 &&
+                   ((direction=="BUY" && sl<entry && tp>entry) ||
+                    (direction=="SELL" && sl>entry && tp<entry)));
+   double trailActivation=0;
+   if(validPlan) trailActivation=(direction=="BUY")?entry+riskDistance:entry-riskDistance;
+   string panel="NEXORA TRADE PLAN\\n";
+   panel+="Instrument: "+_Symbol+" | Timeframe: "+interval+"\\n";
+   panel+="Signal: "+direction+" | Technical score: "+DoubleToString(score,0)+"/100\\n";
+   panel+="Analysed closed candle: "+signalTime+"\\n";
+   panel+="Entry: "+(validPlan?DoubleToString(entry,_Digits):"NOT AVAILABLE")+"\\n";
+   panel+="Stop loss: "+(validPlan?DoubleToString(sl,_Digits):"NOT AVAILABLE")+"\\n";
+   panel+="Take profit: "+(validPlan?DoubleToString(tp,_Digits):"NOT AVAILABLE")+"\\n";
+   panel+="Risk distance: "+(validPlan?DoubleToString(riskDistance,_Digits):"N/A")+" | Reward/Risk: "+(validPlan?DoubleToString(rr,2):"N/A")+"\\n";
+   panel+="Trailing stop: start after +1R at "+(validPlan?DoubleToString(trailActivation,_Digits):"N/A")+"\\n";
+   panel+="Trailing distance: "+(validPlan?DoubleToString(avgRange,_Digits)+" (average candle range)":"N/A")+"\\n";
+   panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\\n";
+   panel+="MANUAL MODE - no order will be placed";
+   Comment(panel);
+   if(direction!="BUY" && direction!="SELL")
+   {
+      Comment("NEXORA TRADE PLAN\\nInstrument: ",_Symbol," | Timeframe: ",interval,
+              "\\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
+              "\\nAnalysed closed candle: ",signalTime,
+              "\\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
+              "\\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
+      g_requestBusy=false; return;
+   }
+   if(!validPlan)
+   {
+      g_lastStatus="INVALID TRADE PLAN - levels failed validation";
+      Comment("NEXORA SAFETY WARNING\\n",_Symbol," | ",interval,"\\nSignal: ",direction,
+              " | Score: ",DoubleToString(score,0),"/100",
+              "\\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
+              "\\nAnalysed candle: ",signalTime);
+      Print("NEXORA SAFETY BLOCK: invalid entry/SL/TP/average range for ",_Symbol);
+      g_requestBusy=false; return;
+   }
    bool newSignal=(signalKey!=g_lastSignalKey);
    if(newSignal)
    {
@@ -393,8 +388,7 @@ void ProcessSignal()
    if(notifyUser)
    {
       GlobalVariableSet(cooldownName,(double)TimeCurrent());
-      if(!InpEnableAutoExecution)
-         Alert("NEXORA ",direction," signal for ",providerSymbol,". Review and place manually if appropriate.");
+      // Desktop pop-ups are disabled; the full trade plan is displayed on the chart.
    }
    else
       Print("NEXORA: signal for ",providerSymbol," logged; pop-up suppressed by the 10-minute alert limit.");
