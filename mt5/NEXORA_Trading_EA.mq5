@@ -330,6 +330,54 @@ void ManageTrailingStop()
       }
    }
 }
+// Return BUY/SELL only when EMA trend, closed-candle price, RSI and momentum agree.
+string LocalTimeframeDirection(ENUM_TIMEFRAMES timeframe)
+{
+   MqlRates rates[];
+   ArraySetAsSeries(rates,false);
+   if(CopyRates(_Symbol,timeframe,1,60,rates)<60) return "WAIT";
+   int fastHandle=iMA(_Symbol,timeframe,20,0,MODE_EMA,PRICE_CLOSE);
+   int slowHandle=iMA(_Symbol,timeframe,50,0,MODE_EMA,PRICE_CLOSE);
+   int rsiHandle=iRSI(_Symbol,timeframe,14,PRICE_CLOSE);
+   if(fastHandle==INVALID_HANDLE || slowHandle==INVALID_HANDLE || rsiHandle==INVALID_HANDLE)
+   {
+      if(fastHandle!=INVALID_HANDLE) IndicatorRelease(fastHandle);
+      if(slowHandle!=INVALID_HANDLE) IndicatorRelease(slowHandle);
+      if(rsiHandle!=INVALID_HANDLE) IndicatorRelease(rsiHandle);
+      return "WAIT";
+   }
+   double fast[1],slow[1],rsiValue[1];
+   bool copied=(CopyBuffer(fastHandle,0,1,1,fast)==1 &&
+                CopyBuffer(slowHandle,0,1,1,slow)==1 &&
+                CopyBuffer(rsiHandle,0,1,1,rsiValue)==1);
+   IndicatorRelease(fastHandle);
+   IndicatorRelease(slowHandle);
+   IndicatorRelease(rsiHandle);
+   if(!copied) return "WAIT";
+   int last=ArraySize(rates)-1;
+   if(last<1) return "WAIT";
+   double closeNow=rates[last].close;
+   double closePrior=rates[last-1].close;
+   if(fast[0]>slow[0] && closeNow>fast[0] && closeNow>closePrior &&
+      rsiValue[0]>50.0 && rsiValue[0]<70.0) return "BUY";
+   if(fast[0]<slow[0] && closeNow<fast[0] && closeNow<closePrior &&
+      rsiValue[0]<50.0 && rsiValue[0]>30.0) return "SELL";
+   return "WAIT";
+}
+bool ConfirmAllTimeframes(string direction,string &details)
+{
+   ENUM_TIMEFRAMES frames[5]={PERIOD_M5,PERIOD_M15,PERIOD_H1,PERIOD_H4,PERIOD_D1};
+   string labels[5]={"M5","M15","H1","H4","D1"};
+   details="";
+   for(int i=0;i<5;i++)
+   {
+      string found=LocalTimeframeDirection(frames[i]);
+      if(details!="") details+=" | ";
+      details+=labels[i]+":"+found;
+      if(found!=direction) return false;
+   }
+   return true;
+}
 void ProcessSignal()
 {
    if(g_requestBusy) return;
@@ -397,6 +445,18 @@ void ProcessSignal()
               "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
       Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
             " | E -- SL -- TP -- | NO TRADE");
+      g_requestBusy=false; return;
+   }
+   string timeframeChecks="";
+   if(!ConfirmAllTimeframes(direction,timeframeChecks))
+   {
+      Comment("NEXORA MULTI-TIMEFRAME CHECK\nInstrument: ",_Symbol,
+              "\nPrimary signal: ",direction," (",DoubleToString(score,0),"/100)",
+              "\nM5 | M15 | H1 | H4 | D1: ",timeframeChecks,
+              "\nDecision: WAIT - all five timeframes must agree.",
+              "\nNo alert or order generated.");
+      Print("NEXORA MTF BLOCK: ",_Symbol," ",direction," rejected; ",timeframeChecks);
+      AppendSignalHistory("WAIT (MTF conflict)",score,entry,sl,tp,signalTime,false);
       g_requestBusy=false; return;
    }
    if(!validPlan)
