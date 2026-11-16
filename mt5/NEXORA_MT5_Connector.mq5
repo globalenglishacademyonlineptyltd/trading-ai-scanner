@@ -91,7 +91,7 @@ void AppendSignalHistory(string direction,double score,double entry,double sl,do
    if(FileSize(handle)==0)
       FileWrite(handle,"Check time","Chart symbol","Timeframe","Direction","Score","Entry","Stop loss","Take profit","Signal candle time","Alert cooldown eligible");
    FileSeek(handle,0,SEEK_END);
-   FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(_Period),
+   FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(g_activeTimeframe),
              direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
              DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime,
               notificationSent?"YES - cooldown elapsed":"NO - 10 minute cooldown");
@@ -207,10 +207,17 @@ double JsonDouble(string json,string key)
    if(v=="" || v=="null") return 0.0;
    return StringToDouble(v);
 }
+bool IsOurMagic(long magic)
+{
+   if(magic==InpMagicNumber) return true;
+   for(int i=0;i<5;i++)
+      if(magic==InpMagicNumber+(long)g_scanFrames[i]) return true;
+   return false;
+}
 bool IsOurPosition(string symbol)
 {
    if(!PositionSelect(symbol)) return false;
-   return PositionGetInteger(POSITION_MAGIC)==InpMagicNumber;
+   return IsOurMagic(PositionGetInteger(POSITION_MAGIC));
 }
 int CountOurPositions()
 {
@@ -218,7 +225,7 @@ int CountOurPositions()
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ticket=PositionGetTicket(i);
-      if(ticket>0 && PositionGetInteger(POSITION_MAGIC)==InpMagicNumber) count++;
+      if(ticket>0 && IsOurMagic(PositionGetInteger(POSITION_MAGIC))) count++;
    }
    return count;
 }
@@ -415,29 +422,29 @@ void ProcessSignal()
       g_requestBusy=false;
       return;
    }
+   // Parse all response fields before branching. WAIT legitimately has null trade levels.
    string direction=JsonValue(json,"direction");
    StringTrimLeft(direction); StringTrimRight(direction); StringToUpper(direction);
-   if(direction!="BUY" && direction!="SELL")
-   {
-      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
-              "\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
-              "\nAnalysed closed candle: ",signalTime,
-              "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
-              "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
-      Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
-            " | E -- SL -- TP -- | NO TRADE");
-      g_requestBusy=false; return;
-   }
    string signalTime=JsonValue(json,"timestamp");
    double score=JsonDouble(json,"score");
    double entry=JsonDouble(json,"entry");
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
+   string interval=CurrentChartInterval();
    int timeframeIndex=-1;
    for(int ti=0;ti<5;ti++) if(g_scanFrames[ti]==g_activeTimeframe) timeframeIndex=ti;
    if(timeframeIndex<0) { g_requestBusy=false; return; }
-   string signalKey=providerSymbol+"|"+CurrentChartInterval()+"|"+direction+"|"+signalTime;
-   string interval=CurrentChartInterval();
+   if(direction!="BUY" && direction!="SELL")
+   {
+      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\\nNEXORA TIMEFRAME SIGNAL\\nInstrument: ",_Symbol," | Timeframe: ",interval,
+              "\\nSignal: WAIT | Technical score: ",DoubleToString(score,0),"/100",
+              "\\nAnalysed closed candle: ",signalTime,
+              "\\nNo trade proposed. Entry, stop loss and take profit are not applicable to WAIT.");
+      Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
+            " | E -- SL -- TP -- | NO TRADE");
+      g_requestBusy=false; return;
+   }
+   string signalKey=providerSymbol+"|"+interval+"|"+direction+"|"+signalTime;
    double riskDistance=(entry>0 && sl>0)?MathAbs(entry-sl):0;
    // Current server plan sets SL at 1.5 x average candle range; derive the range from returned SL.
    double avgRange=(riskDistance>0)?riskDistance/1.5:0;
