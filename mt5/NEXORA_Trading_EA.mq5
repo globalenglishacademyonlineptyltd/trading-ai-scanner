@@ -114,7 +114,7 @@ bool RefreshChartContext()
    g_lastStatus="Loading fresh MT5 data for "+_Symbol+" ("+CurrentChartInterval()+")";
    Print("NEXORA chart context changed: ",previousSymbol," -> ",_Symbol,
          ", timeframe=",CurrentChartInterval(),". Previous signal state cleared.");
-   Comment("NEXORA MT5\\n",g_lastStatus,"\\nData source: MT5 terminal chart\\nNo previous-chart signal is being carried over.");
+   Comment("NEXORA MT5\n",g_lastStatus,"\nData source: MT5 terminal chart\nNo previous-chart signal is being carried over.");
    return true;
 }
 bool HttpPostJson(string url,string payload,string &body)
@@ -343,36 +343,36 @@ void ProcessSignal()
                     (direction=="SELL" && sl>entry && tp<entry)));
    double trailActivation=0;
    if(validPlan) trailActivation=(direction=="BUY")?entry+riskDistance:entry-riskDistance;
-   string panel="NEXORA TRADE PLAN\\n";
-   panel+="Instrument: "+_Symbol+" | Timeframe: "+interval+"\\n";
-   panel+="Signal: "+direction+" | Technical score: "+DoubleToString(score,0)+"/100\\n";
-   panel+="Analysed closed candle: "+signalTime+"\\n";
-   panel+="Entry: "+(validPlan?DoubleToString(entry,_Digits):"NOT AVAILABLE")+"\\n";
-   panel+="Stop loss: "+(validPlan?DoubleToString(sl,_Digits):"NOT AVAILABLE")+"\\n";
-   panel+="Take profit: "+(validPlan?DoubleToString(tp,_Digits):"NOT AVAILABLE")+"\\n";
-   panel+="Risk distance: "+(validPlan?DoubleToString(riskDistance,_Digits):"N/A")+" | Reward/Risk: "+(validPlan?DoubleToString(rr,2):"N/A")+"\\n";
-   panel+="Trailing stop: start after +1R at "+(validPlan?DoubleToString(trailActivation,_Digits):"N/A")+"\\n";
-   panel+="Trailing distance: "+(validPlan?DoubleToString(avgRange,_Digits)+" (average candle range)":"N/A")+"\\n";
-   panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\\n";
-   panel+="Position size: NOT CALCULATED - 1% risk sizing not yet implemented/verified\\n";
+   string panel="NEXORA TRADE PLAN\n";
+   panel+="Instrument: "+_Symbol+" | Timeframe: "+interval+"\n";
+   panel+="Signal: "+direction+" | Technical score: "+DoubleToString(score,0)+"/100\n";
+   panel+="Analysed closed candle: "+signalTime+"\n";
+   panel+="Entry: "+(validPlan?DoubleToString(entry,_Digits):"NOT AVAILABLE")+"\n";
+   panel+="Stop loss: "+(validPlan?DoubleToString(sl,_Digits):"NOT AVAILABLE")+"\n";
+   panel+="Take profit: "+(validPlan?DoubleToString(tp,_Digits):"NOT AVAILABLE")+"\n";
+   panel+="Risk distance: "+(validPlan?DoubleToString(riskDistance,_Digits):"N/A")+" | Reward/Risk: "+(validPlan?DoubleToString(rr,2):"N/A")+"\n";
+   panel+="Trailing stop: start after +1R at "+(validPlan?DoubleToString(trailActivation,_Digits):"N/A")+"\n";
+   panel+="Trailing distance: "+(validPlan?DoubleToString(avgRange,_Digits)+" (average candle range)":"N/A")+"\n";
+   panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\n";
+   panel+="Position size: NOT CALCULATED - 1% risk sizing not yet implemented/verified\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
    Comment(panel);
    if(direction!="BUY" && direction!="SELL")
    {
-      Comment("NEXORA TRADE PLAN\\nInstrument: ",_Symbol," | Timeframe: ",interval,
-              "\\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
-              "\\nAnalysed closed candle: ",signalTime,
-              "\\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
-              "\\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
+      Comment("NEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
+              "\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
+              "\nAnalysed closed candle: ",signalTime,
+              "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
+              "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
       g_requestBusy=false; return;
    }
    if(!validPlan)
    {
       g_lastStatus="INVALID TRADE PLAN - levels failed validation";
-      Comment("NEXORA SAFETY WARNING\\n",_Symbol," | ",interval,"\\nSignal: ",direction,
+      Comment("NEXORA SAFETY WARNING\n",_Symbol," | ",interval,"\nSignal: ",direction,
               " | Score: ",DoubleToString(score,0),"/100",
-              "\\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
-              "\\nAnalysed candle: ",signalTime);
+              "\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
+              "\nAnalysed candle: ",signalTime);
       Print("NEXORA SAFETY BLOCK: invalid entry/SL/TP/average range for ",_Symbol);
       g_requestBusy=false; return;
    }
