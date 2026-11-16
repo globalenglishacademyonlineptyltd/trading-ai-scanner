@@ -69,7 +69,7 @@ bool LoadConnectorToken()
 }
 string AlertCooldownVariable()
 {
-   string key="NEXORA_ALERT_"+_Symbol;
+   string key="NEXORA_ALERT_"+_Symbol+"_"+EnumToString(_Period);
    if(StringLen(key)>63) key=StringSubstr(key,0,63);
    return key;
 }
