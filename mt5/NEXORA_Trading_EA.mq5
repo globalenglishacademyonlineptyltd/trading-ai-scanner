@@ -353,7 +353,7 @@ void ProcessSignal()
    panel+="Trailing stop: start after +1R at "+(validPlan?DoubleToString(trailActivation,_Digits):"N/A")+"\n";
    panel+="Trailing distance: "+(validPlan?DoubleToString(avgRange,_Digits)+" (average candle range)":"N/A")+"\n";
    panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\n";
-   panel+="Position size: NOT CALCULATED - 1% risk sizing not yet implemented/verified\n";
+   panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
    Comment(panel);
    if(direction!="BUY" && direction!="SELL")
