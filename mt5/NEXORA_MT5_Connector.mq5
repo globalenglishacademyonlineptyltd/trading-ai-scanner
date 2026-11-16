@@ -416,6 +416,7 @@ void ProcessSignal()
       return;
    }
    string direction=JsonValue(json,"direction");
+   StringTrimLeft(direction); StringTrimRight(direction); StringToUpper(direction);
    string signalTime=JsonValue(json,"timestamp");
    double score=JsonDouble(json,"score");
    double entry=JsonDouble(json,"entry");
@@ -431,9 +432,15 @@ void ProcessSignal()
    double avgRange=(riskDistance>0)?riskDistance/1.5:0;
    double rewardDistance=(entry>0 && tp>0)?MathAbs(tp-entry):0;
    double rr=(riskDistance>0)?rewardDistance/riskDistance:0;
-   bool validPlan=(entry>0 && sl>0 && tp>0 && avgRange>0 &&
+   bool validPlan=(MathIsValidNumber(entry) && MathIsValidNumber(sl) && MathIsValidNumber(tp) &&
+                   entry>0 && sl>0 && tp>0 && riskDistance>0 && rewardDistance>0 &&
                    ((direction=="BUY" && sl<entry && tp>entry) ||
                     (direction=="SELL" && sl>entry && tp<entry)));
+   if(!validPlan)
+      Print("NEXORA PLAN VALIDATION: direction=",direction," entry=",DoubleToString(entry,_Digits),
+            " SL=",DoubleToString(sl,_Digits)," TP=",DoubleToString(tp,_Digits),
+            " riskDistance=",DoubleToString(riskDistance,_Digits),
+            " rewardDistance=",DoubleToString(rewardDistance,_Digits));
    double trailActivation=0;
    if(validPlan) trailActivation=(direction=="BUY")?entry+riskDistance:entry-riskDistance;
    string panel="NEXORA UPDATE | "+g_lastRefreshText+"\n";
@@ -507,10 +514,11 @@ void ProcessSignal()
       return;
    }
    if(!newSignal) { g_requestBusy=false; return; }
-   if(score<InpMinimumAutoScore)
+   double directionalStrength=(direction=="SELL")?100.0-score:score;
+   if(directionalStrength<InpMinimumAutoScore)
    {
-      Print("NEXORA AUTO BLOCK: ",_Symbol," ",interval," score ",DoubleToString(score,1),
-            " is below minimum ",DoubleToString(InpMinimumAutoScore,1),".");
+      Print("NEXORA AUTO BLOCK: ",_Symbol," ",interval," directional strength ",DoubleToString(directionalStrength,1),
+            "/100 (raw technical score ",DoubleToString(score,1),") is below minimum ",DoubleToString(InpMinimumAutoScore,1),".");
       g_requestBusy=false; return;
    }
    string cooldownKey="NEXORA_COOLDOWN_"+_Symbol+"_"+EnumToString(g_activeTimeframe);
