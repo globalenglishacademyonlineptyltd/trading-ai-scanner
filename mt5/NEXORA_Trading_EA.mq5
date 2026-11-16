@@ -20,15 +20,77 @@ input int    InpMaxOpenPositions = 1;
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 60;
+input int    InpPollSeconds = 600; // Signal analysis/notification interval: 10 minutes
 input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
+string g_connectorToken = "";
+datetime g_nextSignalCheck = 0;
+const string NEXORA_TOKEN_FILE = "NEXORA_MT5_Connector.token";
+const string NEXORA_HISTORY_FILE = "NEXORA_Signal_History.csv";
 datetime g_lastHeartbeat = 0;
 string g_lastStatus = "Starting";
 bool g_requestBusy = false;
 string g_lastChartSymbol = "";
 ENUM_TIMEFRAMES g_lastChartPeriod = PERIOD_CURRENT;
+
+
+bool LoadConnectorToken()
+{
+   // A token entered in Inputs is remembered locally for other charts on this PC.
+   if(StringLen(InpConnectorToken)>=24)
+   {
+      g_connectorToken=InpConnectorToken;
+      int writeHandle=FileOpen(NEXORA_TOKEN_FILE,FILE_WRITE|FILE_TXT|FILE_COMMON);
+      if(writeHandle==INVALID_HANDLE)
+      {
+         Print("NEXORA: Could not save connector token in MT5 Common Files. Error ",GetLastError());
+         return true;
+      }
+      FileWriteString(writeHandle,g_connectorToken);
+      FileClose(writeHandle);
+      Print("NEXORA: Connector token saved locally for other charts on this computer.");
+      return true;
+   }
+   int readHandle=FileOpen(NEXORA_TOKEN_FILE,FILE_READ|FILE_TXT|FILE_COMMON);
+   if(readHandle==INVALID_HANDLE)
+   {
+      Print("NEXORA: No saved connector token found. Enter it once in EA Inputs.");
+      return false;
+   }
+   g_connectorToken=FileReadString(readHandle);
+   FileClose(readHandle);
+   if(StringLen(g_connectorToken)<24)
+   {
+      g_connectorToken="";
+      Print("NEXORA: Saved connector token is invalid. Re-enter it in EA Inputs.");
+      return false;
+   }
+   Print("NEXORA: Reused locally saved connector token.");
+   return true;
+}
+string AlertCooldownVariable()
+{
+   string key="NEXORA_ALERT_"+_Symbol+"_"+EnumToString(_Period);
+   if(StringLen(key)>63) key=StringSubstr(key,0,63);
+   return key;
+}
+void AppendSignalHistory(string direction,double score,double entry,double sl,double tp,string signalTime)
+{
+   int handle=FileOpen(NEXORA_HISTORY_FILE,FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_SHARE_READ,',');
+   if(handle==INVALID_HANDLE)
+   {
+      Print("NEXORA: Could not open signal history file. Error ",GetLastError());
+      return;
+   }
+   if(FileSize(handle)==0)
+      FileWrite(handle,"Alert time","Chart symbol","Timeframe","Direction","Score","Entry","Stop loss","Take profit","Signal candle time");
+   FileSeek(handle,0,SEEK_END);
+   FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(_Period),
+             direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
+             DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime);
+   FileClose(handle);
+}
 
 string TrimSlash(string value)
 {
@@ -77,7 +139,7 @@ bool HttpPostJson(string url,string payload,string &body)
    string responseHeaders;
    StringToCharArray(payload,data,0,WHOLE_ARRAY,CP_UTF8);
    if(ArraySize(data)>0) ArrayResize(data,ArraySize(data)-1);
-   string headers="Content-Type: application/json\r\nAccept: application/json\r\nAuthorization: Bearer "+InpConnectorToken+"\r\n";
+   string headers="Content-Type: application/json\r\nAccept: application/json\r\nAuthorization: Bearer "+g_connectorToken+"\r\n";
    ResetLastError();
    int code=WebRequest("POST",url,headers,15000,data,result,responseHeaders);
    if(code!=200)
@@ -213,7 +275,7 @@ bool HttpGet(string url,string &body)
 {
    char data[],result[];
    string responseHeaders;
-   string headers="Accept: application/json\r\nAuthorization: Bearer "+InpConnectorToken+"\r\n";
+   string headers="Accept: application/json\r\nAuthorization: Bearer "+g_connectorToken+"\r\n";
    ResetLastError();
    int code=WebRequest("GET",url,headers,10000,data,result,responseHeaders);
    if(code!=200)
@@ -231,7 +293,7 @@ bool HttpPost(string url,string payload)
    string responseHeaders;
    StringToCharArray(payload,data,0,WHOLE_ARRAY,CP_UTF8);
    if(ArraySize(data)>0) ArrayResize(data,ArraySize(data)-1);
-   string headers="Content-Type: application/json\r\nAuthorization: Bearer "+InpConnectorToken+"\r\n";
+   string headers="Content-Type: application/json\r\nAuthorization: Bearer "+g_connectorToken+"\r\n";
    ResetLastError();
    int code=WebRequest("POST",url,headers,10000,data,result,responseHeaders);
    if(code!=200)
@@ -320,9 +382,21 @@ void ProcessSignal()
    if(signalKey==g_lastSignalKey) { g_requestBusy=false; return; }
    g_lastSignalKey=signalKey;
    Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
+   string cooldownName=AlertCooldownVariable();
+   datetime lastAlert=0;
+   if(GlobalVariableCheck(cooldownName)) lastAlert=(datetime)GlobalVariableGet(cooldownName);
+   bool notifyUser=(lastAlert==0 || TimeCurrent()-lastAlert>=600);
+   if(notifyUser)
+   {
+      GlobalVariableSet(cooldownName,(double)TimeCurrent());
+      AppendSignalHistory(direction,score,entry,sl,tp,signalTime);
+      if(!InpEnableAutoExecution)
+         Alert("NEXORA ",direction," signal for ",providerSymbol,". Review and place manually if appropriate.");
+   }
+   else
+      Print("NEXORA: repeated ",direction," signal for ",providerSymbol,"; pop-up suppressed by the 10-minute alert limit.");
    if(!InpEnableAutoExecution)
    {
-      Alert("NEXORA ",direction," signal for ",providerSymbol,". Review and place manually if appropriate.");
       g_requestBusy=false;
       return;
    }
@@ -379,17 +453,18 @@ void ProcessSignal()
 }
 int OnInit()
 {
-   if(StringFind(InpNexoraBaseUrl,"https://")!=0 || StringLen(InpConnectorToken)<24)
+   if(StringFind(InpNexoraBaseUrl,"https://")!=0 || !LoadConnectorToken())
    {
-      Print("NEXORA: Set HTTPS base URL and private connector token in EA Inputs.");
+      Print("NEXORA: Set HTTPS base URL and enter the private token once in EA Inputs. It will be saved locally for other charts on this computer.");
       return INIT_PARAMETERS_INCORRECT;
    }
    trade.SetExpertMagicNumber(InpMagicNumber);
    g_lastChartSymbol=_Symbol;
    g_lastChartPeriod=_Period;
-   EventSetTimer(MathMax(15,InpPollSeconds));
+   EventSetTimer(15); // Keep heartbeat alive independently of signal checks.
    SendHeartbeat();
    ProcessSignal();
+   g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
    return INIT_SUCCEEDED;
 }
 void OnTimer()
@@ -397,10 +472,15 @@ void OnTimer()
    if(RefreshChartContext())
    {
       ProcessSignal();
+      g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
       return;
    }
    if(TimeCurrent()-g_lastHeartbeat>=30) SendHeartbeat();
-   ProcessSignal();
+   if(TimeCurrent()>=g_nextSignalCheck)
+   {
+      ProcessSignal();
+      g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
+   }
    ManageTrailingStop();
 }
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
