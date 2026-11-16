@@ -15,7 +15,7 @@ input string InpConnectorToken = "";       // Set privately; never commit/share
 input string InpProviderSymbol = ""; // Leave blank to derive the provider symbol from this chart; optional explicit override
 input string InpSignalInterval = "1h";
 input bool   InpEnableAutoExecution = false; // OFF by default
-input double InpFixedLots = 0.01;
+input double InpRiskPercent = 1.0; // Risk budget as % of account equity, calculated from entry-to-stop loss
 input int    InpMaxOpenPositions = 1;
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
@@ -49,7 +49,6 @@ bool LoadConnectorToken()
       }
       FileWriteString(writeHandle,g_connectorToken);
       FileClose(writeHandle);
-      Print("NEXORA: Connector token saved locally for other charts on this computer.");
       return true;
    }
    int readHandle=FileOpen(NEXORA_TOKEN_FILE,FILE_READ|FILE_TXT|FILE_COMMON);
@@ -66,7 +65,6 @@ bool LoadConnectorToken()
       Print("NEXORA: Saved connector token is invalid. Re-enter it in EA Inputs.");
       return false;
    }
-   Print("NEXORA: Reused locally saved connector token.");
    return true;
 }
 string AlertCooldownVariable()
@@ -441,10 +439,43 @@ void ProcessSignal()
       Print("NEXORA: broker minimum stop distance not satisfied.");
       g_requestBusy=false; return;
    }
-   double lots=NormalizedLots(InpFixedLots);
-   if(lots<=0) { Print("NEXORA: invalid volume step."); g_requestBusy=false; return; }
+   // Size the order so estimated loss at the stop is no more than the
+   // configured percentage of current account equity. Never round UP to min lot.
+   ENUM_ORDER_TYPE orderType=(direction=="BUY")?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskBudget=equity*(InpRiskPercent/100.0);
+   double oneLotProfit=0.0;
+   if(equity<=0.0 || riskBudget<=0.0 ||
+      !OrderCalcProfit(orderType,_Symbol,1.0,current,sl,oneLotProfit) ||
+      MathAbs(oneLotProfit)<=0.0)
+   {
+      Print("NEXORA SAFETY BLOCK: could not calculate stop-loss risk from this symbol's contract specifications. No order sent.");
+      g_requestBusy=false; return;
+   }
+   double rawLots=riskBudget/MathAbs(oneLotProfit);
+   double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   if(step<=0.0 || rawLots<minLot)
+   {
+      Print("NEXORA SAFETY BLOCK: minimum broker volume would exceed the ",DoubleToString(InpRiskPercent,2),
+            "% risk budget. No order sent.");
+      g_requestBusy=false; return;
+   }
+   double lots=NormalizedLots(rawLots);
+   if(lots<minLot || lots<=0.0)
+   {
+      Print("NEXORA SAFETY BLOCK: calculated volume is below broker minimum. No order sent.");
+      g_requestBusy=false; return;
+   }
+   double estimatedProfit=0.0;
+   if(!OrderCalcProfit(orderType,_Symbol,lots,current,sl,estimatedProfit) ||
+      MathAbs(estimatedProfit)>riskBudget*1.001)
+   {
+      Print("NEXORA SAFETY BLOCK: final volume failed the risk-budget check. No order sent.");
+      g_requestBusy=false; return;
+   }
    trade.SetExpertMagicNumber(InpMagicNumber);
-   trade.SetDeviationInPoints(20);
+   trade.SetDeviationInPoints(InpMaxPriceDeviationPoints);
    bool sent=false;
    if(direction=="BUY") sent=trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
    else sent=trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
@@ -454,9 +485,9 @@ void ProcessSignal()
 }
 int OnInit()
 {
-   if(InpEnableAutoExecution)
+   if(InpRiskPercent<=0.0 || InpRiskPercent>5.0)
    {
-      Print("NEXORA SAFETY BLOCK: automatic execution is disabled until verified 1% risk-based position sizing and execution tests are complete.");
+      Print("NEXORA SAFETY BLOCK: risk percentage must be greater than 0 and no more than 5%.");
       return INIT_PARAMETERS_INCORRECT;
    }
    if(StringFind(InpNexoraBaseUrl,"https://")!=0 || !LoadConnectorToken())
