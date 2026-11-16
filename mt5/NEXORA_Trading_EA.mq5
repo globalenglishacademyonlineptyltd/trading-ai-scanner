@@ -453,6 +453,11 @@ void ProcessSignal()
 }
 int OnInit()
 {
+   if(InpEnableAutoExecution)
+   {
+      Print("NEXORA SAFETY BLOCK: automatic execution is disabled until verified 1% risk-based position sizing and execution tests are complete.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
    if(StringFind(InpNexoraBaseUrl,"https://")!=0 || !LoadConnectorToken())
    {
       Print("NEXORA: Set HTTPS base URL and enter the private token once in EA Inputs. It will be saved locally for other charts on this computer.");
