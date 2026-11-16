@@ -38,14 +38,14 @@ ENUM_TIMEFRAMES g_lastChartPeriod = PERIOD_CURRENT;
 bool LoadConnectorToken()
 {
    // A token entered in Inputs is remembered locally for other charts on this PC.
-   if(StringLen(InpConnectorToken)>=24)
+   if(StringLen(InpConnectorToken)>=32)
    {
       g_connectorToken=InpConnectorToken;
       int writeHandle=FileOpen(NEXORA_TOKEN_FILE,FILE_WRITE|FILE_TXT|FILE_COMMON);
       if(writeHandle==INVALID_HANDLE)
       {
-         Print("NEXORA: Could not save connector token in MT5 Common Files. Error ",GetLastError());
-         return true;
+         Print("NEXORA ERROR: Could not save connector token in MT5 Common Files. Error ",GetLastError());
+         return false;
       }
       FileWriteString(writeHandle,g_connectorToken);
       FileClose(writeHandle);
@@ -60,7 +60,7 @@ bool LoadConnectorToken()
    }
    g_connectorToken=FileReadString(readHandle);
    FileClose(readHandle);
-   if(StringLen(g_connectorToken)<24)
+   if(StringLen(g_connectorToken)<32)
    {
       g_connectorToken="";
       Print("NEXORA: Saved connector token is invalid. Re-enter it in EA Inputs.");
@@ -75,7 +75,7 @@ string AlertCooldownVariable()
    if(StringLen(key)>63) key=StringSubstr(key,0,63);
    return key;
 }
-void AppendSignalHistory(string direction,double score,double entry,double sl,double tp,string signalTime)
+void AppendSignalHistory(string direction,double score,double entry,double sl,double tp,string signalTime,bool notificationSent)
 {
    int handle=FileOpen(NEXORA_HISTORY_FILE,FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_SHARE_READ,',');
    if(handle==INVALID_HANDLE)
@@ -84,11 +84,12 @@ void AppendSignalHistory(string direction,double score,double entry,double sl,do
       return;
    }
    if(FileSize(handle)==0)
-      FileWrite(handle,"Alert time","Chart symbol","Timeframe","Direction","Score","Entry","Stop loss","Take profit","Signal candle time");
+      FileWrite(handle,"Check time","Chart symbol","Timeframe","Direction","Score","Entry","Stop loss","Take profit","Signal candle time","Pop-up sent");
    FileSeek(handle,0,SEEK_END);
    FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(_Period),
              direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
-             DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime);
+             DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime,
+              notificationSent?"YES":"NO - 10 minute cooldown");
    FileClose(handle);
 }
 
@@ -392,12 +393,12 @@ void ProcessSignal()
    if(notifyUser)
    {
       GlobalVariableSet(cooldownName,(double)TimeCurrent());
-      AppendSignalHistory(direction,score,entry,sl,tp,signalTime);
       if(!InpEnableAutoExecution)
          Alert("NEXORA ",direction," signal for ",providerSymbol,". Review and place manually if appropriate.");
    }
    else
-      Print("NEXORA: repeated ",direction," signal for ",providerSymbol,"; pop-up suppressed by the 10-minute alert limit.");
+      Print("NEXORA: signal for ",providerSymbol," logged; pop-up suppressed by the 10-minute alert limit.");
+   AppendSignalHistory(direction,score,entry,sl,tp,signalTime,notifyUser);
    if(!InpEnableAutoExecution)
    {
       g_requestBusy=false;
