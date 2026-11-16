@@ -426,7 +426,7 @@ void ProcessSignal()
    panel+="Take profit: "+(validPlan?DoubleToString(tp,_Digits):"NOT AVAILABLE")+"\n";
    panel+="Risk distance: "+(validPlan?DoubleToString(riskDistance,_Digits):"N/A")+" | Reward/Risk: "+(validPlan?DoubleToString(rr,2):"N/A")+"\n";
    panel+="Trailing stop: start after +1R at "+(validPlan?DoubleToString(trailActivation,_Digits):"N/A")+"\n";
-   panel+="Trailing distance: "+(validPlan?DoubleToString(avgRange,_Digits)+" (average candle range)":"N/A")+"\n";
+   panel+="Trailing distance: "+IntegerToString(InpTrailingStopPoints)+" points; activation after +1R\n";
    panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\n";
    panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
