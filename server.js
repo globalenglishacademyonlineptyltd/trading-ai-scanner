@@ -44,7 +44,7 @@ const LIVE_WATCHLIST = [
   { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', market: 'crypto' },
   { symbol: 'AAPL', name: 'Apple', market: 'shares' }
 ];
-const SCAN_INTERVAL_MS = 15 * 60 * 1000;
+const SCAN_INTERVAL_MS = 2 * 60 * 1000;
 let liveScan = { instruments: [], lastUpdated: null, nextScanAt: null, scanning: false, error: null };
 let scanPromise = null;
 let lastScanStartedAt = 0;
@@ -348,7 +348,7 @@ async function route(req, res, url) {
   });
   if (p === '/api/scan/status') {
     if (!liveScan.lastUpdated) await runLiveScan(false);
-    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:15});
+    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:2});
   }
   if (p === '/api/market/search') {
     const q=url.searchParams.get('q')||'';
