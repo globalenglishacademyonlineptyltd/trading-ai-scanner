@@ -296,53 +296,56 @@ void SendHeartbeat()
 }
 void ManageTrailingStop()
 {
-   if(InpTrailingStopPoints<=0 || !IsOurPosition(_Symbol)) return;
-   long type=PositionGetInteger(POSITION_TYPE);
-   double oldSL=PositionGetDouble(POSITION_SL);
-   double tp=PositionGetDouble(POSITION_TP);
-   double openPrice=PositionGetDouble(POSITION_PRICE_OPEN);
-   double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
-   int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
-   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   if(point<=0 || openPrice<=0) return;
-
-   // Preserve the original stop distance per position ticket. This prevents
-   // the +1R activation threshold from moving as the trailing stop advances.
-   ulong ticket=(ulong)PositionGetInteger(POSITION_TICKET);
-   string riskKey="NEXORA_RISK_"+IntegerToString((long)ticket);
-   double initialRisk=0.0;
-   if(GlobalVariableCheck(riskKey))
-      initialRisk=GlobalVariableGet(riskKey);
-   else if(oldSL>0)
+   if(InpTrailingStopPoints<=0) return;
+   for(int i=PositionsTotal()-1;i>=0;i--)
    {
-      initialRisk=MathAbs(openPrice-oldSL);
-      if(initialRisk>0) GlobalVariableSet(riskKey,initialRisk);
-   }
-   if(initialRisk<=0) return;
-
-   double favourableMove=(type==POSITION_TYPE_BUY)?bid-openPrice:openPrice-ask;
-   // Do not trail until the position has moved at least +1R in its favour.
-   if(favourableMove<initialRisk) return;
-
-   double distance=InpTrailingStopPoints*point;
-   double step=MathMax(1,InpTrailingStepPoints)*point;
-   if(type==POSITION_TYPE_BUY)
-   {
-      double candidate=NormalizeDouble(bid-distance,digits);
-      if(candidate>openPrice && (oldSL==0 || candidate>oldSL+step) && candidate<bid)
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      string symbol=PositionGetString(POSITION_SYMBOL);
+      long magic=PositionGetInteger(POSITION_MAGIC);
+      if(!IsOurMagic(magic)) continue;
+      if(!PositionSelectByTicket(ticket)) continue;
+      long type=PositionGetInteger(POSITION_TYPE);
+      double oldSL=PositionGetDouble(POSITION_SL);
+      double tp=PositionGetDouble(POSITION_TP);
+      double openPrice=PositionGetDouble(POSITION_PRICE_OPEN);
+      double point=SymbolInfoDouble(symbol,SYMBOL_POINT);
+      int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
+      double bid=SymbolInfoDouble(symbol,SYMBOL_BID);
+      double ask=SymbolInfoDouble(symbol,SYMBOL_ASK);
+      if(point<=0 || openPrice<=0) continue;
+      string riskKey="NEXORA_RISK_"+IntegerToString((long)ticket);
+      double initialRisk=0.0;
+      if(GlobalVariableCheck(riskKey)) initialRisk=GlobalVariableGet(riskKey);
+      else if(oldSL>0)
       {
-         if(!trade.PositionModify(_Symbol,candidate,tp))
-            Print("NEXORA trailing-stop update failed: ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+         initialRisk=MathAbs(openPrice-oldSL);
+         if(initialRisk>0) GlobalVariableSet(riskKey,initialRisk);
       }
-   }
-   else if(type==POSITION_TYPE_SELL)
-   {
-      double candidate=NormalizeDouble(ask+distance,digits);
-      if(candidate<openPrice && (oldSL==0 || candidate<oldSL-step) && candidate>ask)
+      if(initialRisk<=0) continue;
+      double favourableMove=(type==POSITION_TYPE_BUY)?bid-openPrice:openPrice-ask;
+      if(favourableMove<initialRisk) continue; // Activate only after +1R.
+      double distance=InpTrailingStopPoints*point;
+      double step=MathMax(1,InpTrailingStepPoints)*point;
+      if(type==POSITION_TYPE_BUY)
       {
-         if(!trade.PositionModify(_Symbol,candidate,tp))
-            Print("NEXORA trailing-stop update failed: ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+         double candidate=NormalizeDouble(bid-distance,digits);
+         if(candidate>openPrice && (oldSL==0 || candidate>oldSL+step) && candidate<bid)
+         {
+            if(!trade.PositionModify(ticket,candidate,tp))
+               Print("NEXORA trailing-stop update failed for ",symbol," ticket ",ticket,": ",
+                     trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+         }
+      }
+      else if(type==POSITION_TYPE_SELL)
+      {
+         double candidate=NormalizeDouble(ask+distance,digits);
+         if(candidate<openPrice && (oldSL==0 || candidate<oldSL-step) && candidate>ask)
+         {
+            if(!trade.PositionModify(ticket,candidate,tp))
+               Print("NEXORA trailing-stop update failed for ",symbol," ticket ",ticket,": ",
+                     trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+         }
       }
    }
 }
