@@ -400,7 +400,7 @@ void ProcessSignal()
    string cooldownName=AlertCooldownVariable();
    datetime lastAlert=0;
    if(GlobalVariableCheck(cooldownName)) lastAlert=(datetime)GlobalVariableGet(cooldownName);
-   bool notifyUser=(lastAlert==0 || TimeCurrent()-lastAlert>=600);
+   bool notifyUser=(lastAlert==0 || TimeCurrent()-lastAlert>=300);
    if(notifyUser)
    {
       GlobalVariableSet(cooldownName,(double)TimeCurrent());
