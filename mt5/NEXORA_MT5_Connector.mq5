@@ -25,10 +25,10 @@ input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
 string g_connectorToken = "";
-datetime g_nextSignalCheck = 0;
+ulong g_nextSignalCheckMs = 0;
 const string NEXORA_TOKEN_FILE = "NEXORA_MT5_Connector.token";
 const string NEXORA_HISTORY_FILE = "NEXORA_Signal_History.csv";
-datetime g_lastHeartbeat = 0;
+ulong g_lastHeartbeatMs = 0;
 string g_lastStatus = "Starting";
 string g_lastRefreshText = "Not refreshed yet";
 bool g_requestBusy = false;
@@ -279,7 +279,7 @@ void SendHeartbeat()
    payload+="\"trade_allowed\":"+(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)?"true":"false")+",";
    payload+="\"account_trade_allowed\":"+(AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)?"true":"false")+"}";
    if(HttpPost(TrimSlash(InpNexoraBaseUrl)+"/api/mt5/heartbeat",payload))
-      g_lastHeartbeat=TimeCurrent();
+      g_lastHeartbeatMs=GetTickCount64();
 }
 void ManageTrailingStop()
 {
@@ -609,7 +609,7 @@ int OnInit()
    EventSetTimer(10); // Keep the backend heartbeat alive independently of signal checks.
    SendHeartbeat();
    ProcessSignal();
-   g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
+   g_nextSignalCheckMs=GetTickCount64()+(ulong)MathMax(60,InpPollSeconds)*1000;
    return INIT_SUCCEEDED;
 }
 void OnTimer()
@@ -617,14 +617,15 @@ void OnTimer()
    if(RefreshChartContext())
    {
       ProcessSignal();
-      g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
+      g_nextSignalCheckMs=GetTickCount64()+(ulong)MathMax(60,InpPollSeconds)*1000;
       return;
    }
-   if(TimeCurrent()-g_lastHeartbeat>=20) SendHeartbeat();
-   if(TimeCurrent()>=g_nextSignalCheck)
+   ulong nowMs=GetTickCount64();
+   if(nowMs-g_lastHeartbeatMs>=20000) SendHeartbeat();
+   if(nowMs>=g_nextSignalCheckMs)
    {
       ProcessSignal();
-      g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
+      g_nextSignalCheckMs=GetTickCount64()+(ulong)MathMax(60,InpPollSeconds)*1000;
    }
    ManageTrailingStop();
 }
