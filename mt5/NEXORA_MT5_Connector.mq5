@@ -417,6 +417,17 @@ void ProcessSignal()
    }
    string direction=JsonValue(json,"direction");
    StringTrimLeft(direction); StringTrimRight(direction); StringToUpper(direction);
+   if(direction!="BUY" && direction!="SELL")
+   {
+      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
+              "\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
+              "\nAnalysed closed candle: ",signalTime,
+              "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
+              "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
+      Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
+            " | E -- SL -- TP -- | NO TRADE");
+      g_requestBusy=false; return;
+   }
    string signalTime=JsonValue(json,"timestamp");
    double score=JsonDouble(json,"score");
    double entry=JsonDouble(json,"entry");
@@ -474,17 +485,7 @@ void ProcessSignal()
          " SL ",DoubleToString(sl,_Digits),
          " TP ",DoubleToString(tp,_Digits),
          " | AUTO ",InpEnableAutoExecution?"ON":"OFF");
-   if(direction!="BUY" && direction!="SELL")
-   {
-      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
-              "\nSignal: WAIT | Score: ",DoubleToString(score,0),"/100",
-              "\nAnalysed closed candle: ",signalTime,
-              "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
-              "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
-      Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
-            " | E -- SL -- TP -- | NO TRADE");
-      g_requestBusy=false; return;
-   }
+
    // Independent timeframe mode: no cross-timeframe agreement gate.\n   if(!validPlan)
    {
       g_lastStatus="INVALID TRADE PLAN - levels failed validation";
@@ -667,7 +668,9 @@ void OnTimer()
    if(nowMs-g_lastHeartbeatMs>=20000) SendHeartbeat();
    if(nowMs>=g_nextSignalCheckMs)
    {
-      ProcessSignal();
+      // Refresh all five independent timeframe signals on every scheduled scan.
+      for(int i=0;i<5;i++) { g_activeTimeframe=g_scanFrames[i]; ProcessSignal(); }
+      g_activeTimeframe=_Period;
       g_nextSignalCheckMs=GetTickCount64()+(ulong)MathMax(60,InpPollSeconds)*1000;
    }
    ManageTrailingStop();
