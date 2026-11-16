@@ -432,15 +432,25 @@ void ProcessSignal()
    double avgRange=(riskDistance>0)?riskDistance/1.5:0;
    double rewardDistance=(entry>0 && tp>0)?MathAbs(tp-entry):0;
    double rr=(riskDistance>0)?rewardDistance/riskDistance:0;
-   bool validPlan=(MathIsValidNumber(entry) && MathIsValidNumber(sl) && MathIsValidNumber(tp) &&
-                   entry>0 && sl>0 && tp>0 && riskDistance>0 && rewardDistance>0 &&
-                   ((direction=="BUY" && sl<entry && tp>entry) ||
-                    (direction=="SELL" && sl>entry && tp<entry)));
+   string planRejectReason="";
+   if(direction!="BUY" && direction!="SELL") planRejectReason="direction is not BUY or SELL";
+   else if(!MathIsValidNumber(entry) || entry<=0) planRejectReason="entry missing or not numeric";
+   else if(!MathIsValidNumber(sl) || sl<=0) planRejectReason="stop loss missing or not numeric";
+   else if(!MathIsValidNumber(tp) || tp<=0) planRejectReason="take profit missing or not numeric";
+   else if(direction=="BUY" && sl>=entry) planRejectReason="BUY stop loss must be below entry";
+   else if(direction=="BUY" && tp<=entry) planRejectReason="BUY take profit must be above entry";
+   else if(direction=="SELL" && sl<=entry) planRejectReason="SELL stop loss must be above entry";
+   else if(direction=="SELL" && tp>=entry) planRejectReason="SELL take profit must be below entry";
+   bool validPlan=(planRejectReason=="");
    if(!validPlan)
-      Print("NEXORA PLAN VALIDATION: direction=",direction," entry=",DoubleToString(entry,_Digits),
+      Print("NEXORA PLAN REJECT REASON: ",planRejectReason,
+            " | raw direction=",JsonValue(json,"direction"),
+            " | raw entry=",JsonValue(json,"entry"),
+            " | raw SL=",JsonValue(json,"stopLoss"),
+            " | raw TP=",JsonValue(json,"takeProfit"),
+            " | parsed E=",DoubleToString(entry,_Digits),
             " SL=",DoubleToString(sl,_Digits)," TP=",DoubleToString(tp,_Digits),
-            " riskDistance=",DoubleToString(riskDistance,_Digits),
-            " rewardDistance=",DoubleToString(rewardDistance,_Digits));
+            " | JSON=",json);
    double trailActivation=0;
    if(validPlan) trailActivation=(direction=="BUY")?entry+riskDistance:entry-riskDistance;
    string panel="NEXORA UPDATE | "+g_lastRefreshText+"\n";
@@ -482,7 +492,7 @@ void ProcessSignal()
               " | Score: ",DoubleToString(score,0),"/100",
               "\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
               "\nAnalysed candle: ",signalTime);
-      Print("NEXORA | ",_Symbol," ",interval," | REJECTED INVALID PLAN",
+      Print("NEXORA | ",_Symbol," ",interval," | REJECTED INVALID PLAN: ",planRejectReason,
             " | E ",DoubleToString(entry,_Digits),
             " SL ",DoubleToString(sl,_Digits),
             " TP ",DoubleToString(tp,_Digits),
