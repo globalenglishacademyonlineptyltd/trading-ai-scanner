@@ -16,14 +16,20 @@ input string InpProviderSymbol = ""; // Leave blank to derive the provider symbo
 input string InpSignalInterval = "1h";
 input bool   InpEnableAutoExecution = false; // OFF by default
 input double InpRiskPercent = 1.0; // Risk budget as % of account equity, calculated from entry-to-stop loss
-input int    InpMaxOpenPositions = 1;
+input int    InpMaxOpenPositions = 5; // Up to one independently managed position per timeframe
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 120; // Refresh signals and chart message block every 2 minutes
+input int    InpPollSeconds = 120; // Refresh signals every 2 minutes
+input double InpMinimumAutoScore = 70.0; // Minimum technical score for automatic entries
+input int    InpTradeCooldownSeconds = 300; // Per-timeframe cooldown after a position closes
 input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
+string g_lastSignalKeys[5];
+ENUM_TIMEFRAMES g_activeTimeframe=PERIOD_M5;
+ENUM_TIMEFRAMES g_scanFrames[5]={PERIOD_M5,PERIOD_M15,PERIOD_M30,PERIOD_H1,PERIOD_H4};
+string g_scanLabels[5]={"M5","M15","M30","H1","H4"};
 string g_connectorToken = "";
 ulong g_nextSignalCheckMs = 0;
 const string NEXORA_TOKEN_FILE = "NEXORA_MT5_Connector.token";
@@ -70,7 +76,7 @@ bool LoadConnectorToken()
 }
 string AlertCooldownVariable()
 {
-   string key="NEXORA_ALERT_"+_Symbol+"_"+EnumToString(_Period);
+   string key="NEXORA_ALERT_"+_Symbol+"_"+EnumToString(g_activeTimeframe);
    if(StringLen(key)>63) key=StringSubstr(key,0,63);
    return key;
 }
@@ -100,7 +106,7 @@ string TrimSlash(string value)
 }
 string CurrentChartInterval()
 {
-   return EnumToString(_Period);
+   return EnumToString(g_activeTimeframe);
 }
 // Detect symbol/timeframe changes on this chart and discard the previous chart's signal state.
 bool RefreshChartContext()
@@ -140,7 +146,7 @@ bool BuildLocalCandlePayload(string &payload)
 {
    MqlRates rates[];
    ArraySetAsSeries(rates,false);
-   int copied=CopyRates(_Symbol,_Period,1,100,rates); // closed candles only; excludes the forming bar
+   int copied=CopyRates(_Symbol,g_activeTimeframe,1,100,rates); // closed candles only; excludes the forming bar
    if(copied<60)
    {
       g_lastStatus="Waiting for at least 60 closed chart candles for "+_Symbol;
@@ -370,10 +376,10 @@ string LocalTimeframeDirection(ENUM_TIMEFRAMES timeframe)
 bool ConfirmAllTimeframes(string direction,string &details)
 {
    // Six-timeframe confirmation: every timeframe must agree with the chart's primary signal.
-   ENUM_TIMEFRAMES frames[6]={PERIOD_M5,PERIOD_M15,PERIOD_M30,PERIOD_H1,PERIOD_H4,PERIOD_D1};
-   string labels[6]={"M5","M15","M30","H1","H4","D1"};
+   ENUM_TIMEFRAMES frames[5]={PERIOD_M5,PERIOD_M15,PERIOD_M30,PERIOD_H1,PERIOD_H4};
+   string labels[5]={"M5","M15","M30","H1","H4"};
    details="";
-   for(int i=0;i<6;i++)
+   for(int i=0;i<5;i++)
    {
       string found=LocalTimeframeDirection(frames[i]);
       if(details!="") details+=" | ";
@@ -415,6 +421,9 @@ void ProcessSignal()
    double entry=JsonDouble(json,"entry");
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
+   int timeframeIndex=-1;
+   for(int ti=0;ti<5;ti++) if(g_scanFrames[ti]==g_activeTimeframe) timeframeIndex=ti;
+   if(timeframeIndex<0) { g_requestBusy=false; return; }
    string signalKey=providerSymbol+"|"+CurrentChartInterval()+"|"+direction+"|"+signalTime;
    string interval=CurrentChartInterval();
    double riskDistance=(entry>0 && sl>0)?MathAbs(entry-sl):0;
@@ -441,6 +450,7 @@ void ProcessSignal()
    panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\n";
    panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
+   panel+="\\nIndependent timeframe scan: "+interval+" | AUTO threshold: "+DoubleToString(InpMinimumAutoScore,0)+"/100";
    Comment(panel);
    Print("NEXORA | ",_Symbol," ",interval," | ",direction," ",DoubleToString(score,0),"/100",
          " | E ",DoubleToString(entry,_Digits),
@@ -458,19 +468,7 @@ void ProcessSignal()
             " | E -- SL -- TP -- | NO TRADE");
       g_requestBusy=false; return;
    }
-   string timeframeChecks="";
-   if(!ConfirmAllTimeframes(direction,timeframeChecks))
-   {
-      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA MULTI-TIMEFRAME CHECK\nInstrument: ",_Symbol,
-              "\nPrimary signal: ",direction," (",DoubleToString(score,0),"/100)",
-              "\nM5 | M15 | M30 | H1 | H4 | D1: ",timeframeChecks,
-              "\nDecision: WAIT - all six timeframes must agree.",
-              "\nNo alert or order generated.");
-      Print("NEXORA MTF BLOCK: ",_Symbol," ",direction," rejected; ",timeframeChecks);
-      AppendSignalHistory("WAIT (MTF conflict)",score,entry,sl,tp,signalTime,false);
-      g_requestBusy=false; return;
-   }
-   if(!validPlan)
+   // Independent timeframe mode: no cross-timeframe agreement gate.\n   if(!validPlan)
    {
       g_lastStatus="INVALID TRADE PLAN - levels failed validation";
       Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA SAFETY WARNING\n",_Symbol," | ",interval,"\nSignal: ",direction,
@@ -484,9 +482,10 @@ void ProcessSignal()
             " | NO ORDER");
       g_requestBusy=false; return;
    }
-   bool newSignal=(signalKey!=g_lastSignalKey);
+   bool newSignal=(signalKey!=g_lastSignalKeys[timeframeIndex]);
    if(newSignal)
    {
+      g_lastSignalKeys[timeframeIndex]=signalKey;
       g_lastSignalKey=signalKey;
       Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
    }
@@ -508,6 +507,29 @@ void ProcessSignal()
       return;
    }
    if(!newSignal) { g_requestBusy=false; return; }
+   if(score<InpMinimumAutoScore)
+   {
+      Print("NEXORA AUTO BLOCK: ",_Symbol," ",interval," score ",DoubleToString(score,1),
+            " is below minimum ",DoubleToString(InpMinimumAutoScore,1),".");
+      g_requestBusy=false; return;
+   }
+   string cooldownKey="NEXORA_COOLDOWN_"+_Symbol+"_"+EnumToString(g_activeTimeframe);
+   if(GlobalVariableCheck(cooldownKey) && TimeCurrent()<(datetime)GlobalVariableGet(cooldownKey))
+   {
+      Print("NEXORA AUTO WAIT: ",_Symbol," ",interval," is in its post-close cooldown until ",
+            TimeToString((datetime)GlobalVariableGet(cooldownKey),TIME_DATE|TIME_SECONDS));
+      g_requestBusy=false; return;
+   }
+   long timeframeMagic=InpMagicNumber+(long)g_activeTimeframe;
+   for(int pi=PositionsTotal()-1;pi>=0;pi--)
+   {
+      ulong pt=PositionGetTicket(pi);
+      if(pt>0 && PositionGetString(POSITION_SYMBOL)==_Symbol && PositionGetInteger(POSITION_MAGIC)==timeframeMagic)
+      {
+         Print("NEXORA AUTO WAIT: existing ",interval," position already open on ",_Symbol,".");
+         g_requestBusy=false; return;
+      }
+   }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
    {
       Print("NEXORA: trading permissions are disabled. No order sent.");
@@ -583,7 +605,7 @@ void ProcessSignal()
       Print("NEXORA SAFETY BLOCK: final volume failed the risk-budget check. No order sent.");
       g_requestBusy=false; return;
    }
-   trade.SetExpertMagicNumber(InpMagicNumber);
+   trade.SetExpertMagicNumber(timeframeMagic);
    trade.SetDeviationInPoints(InpMaxPriceDeviationPoints);
    bool sent=false;
    if(direction=="BUY") sent=trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
@@ -594,7 +616,7 @@ void ProcessSignal()
 }
 int OnInit()
 {
-   if(InpRiskPercent<=0.0 || InpRiskPercent>5.0)
+   if(InpRiskPercent<=0.0 || InpRiskPercent>5.0 || InpMinimumAutoScore<0.0 || InpMinimumAutoScore>100.0 || InpTradeCooldownSeconds<0)
    {
       Print("NEXORA SAFETY BLOCK: risk percentage must be greater than 0 and no more than 5%.");
       return INIT_PARAMETERS_INCORRECT;
@@ -609,7 +631,8 @@ int OnInit()
    g_lastChartPeriod=_Period;
    EventSetTimer(10); // Keep the backend heartbeat alive independently of signal checks.
    SendHeartbeat();
-   ProcessSignal();
+   for(int i=0;i<5;i++) { g_activeTimeframe=g_scanFrames[i]; ProcessSignal(); }
+   g_activeTimeframe=_Period;
    g_nextSignalCheckMs=GetTickCount64()+(ulong)MathMax(60,InpPollSeconds)*1000;
    return INIT_SUCCEEDED;
 }
@@ -617,7 +640,8 @@ void OnTimer()
 {
    if(RefreshChartContext())
    {
-      ProcessSignal();
+      for(int i=0;i<5;i++) { g_activeTimeframe=g_scanFrames[i]; ProcessSignal(); }
+      g_activeTimeframe=_Period;
       g_nextSignalCheckMs=GetTickCount64()+(ulong)MathMax(60,InpPollSeconds)*1000;
       return;
    }
@@ -633,7 +657,29 @@ void OnTimer()
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
 {
    if(id==CHARTEVENT_CHART_CHANGE && RefreshChartContext())
-      ProcessSignal();
+   {
+      for(int i=0;i<5;i++) { g_activeTimeframe=g_scanFrames[i]; ProcessSignal(); }
+      g_activeTimeframe=_Period;
+   }
+}
+void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
+{
+   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   long magic=(long)HistoryDealGetInteger(trans.deal,DEAL_MAGIC);
+   long entry=(long)HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
+   if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) return;
+   for(int i=0;i<5;i++)
+   {
+      long expectedMagic=InpMagicNumber+(long)g_scanFrames[i];
+      if(magic!=expectedMagic) continue;
+      string symbol=HistoryDealGetString(trans.deal,DEAL_SYMBOL);
+      string key="NEXORA_COOLDOWN_"+symbol+"_"+EnumToString(g_scanFrames[i]);
+      datetime until=TimeCurrent()+MathMax(0,InpTradeCooldownSeconds);
+      GlobalVariableSet(key,(double)until);
+      Print("NEXORA cooldown started: ",symbol," ",g_scanLabels[i]," until ",TimeToString(until,TIME_DATE|TIME_SECONDS));
+      break;
+   }
 }
 void OnDeinit(const int reason)
 {
