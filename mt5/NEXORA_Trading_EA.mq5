@@ -20,7 +20,7 @@ input int    InpMaxOpenPositions = 1;
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 600; // Signal analysis/notification interval: 10 minutes
+input int    InpPollSeconds = 300; // Signal analysis/notification interval: 5 minutes
 input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
@@ -87,7 +87,7 @@ void AppendSignalHistory(string direction,double score,double entry,double sl,do
    FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(_Period),
              direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
              DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime,
-              notificationSent?"YES - cooldown elapsed":"NO - 10 minute cooldown");
+              notificationSent?"YES - cooldown elapsed":"NO - 5 minute cooldown");
    FileClose(handle);
 }
 
@@ -356,6 +356,13 @@ void ProcessSignal()
    panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
    Comment(panel);
+   Print("NEXORA 5-MINUTE UPDATE | ",_Symbol," | ",interval,
+         " | ",direction," | score=",DoubleToString(score,0),"/100",
+         " | Entry=",DoubleToString(entry,_Digits),
+         " | SL=",DoubleToString(sl,_Digits),
+         " | TP=",DoubleToString(tp,_Digits),
+         " | candle=",signalTime,
+         " | auto=",InpEnableAutoExecution?"ON":"OFF");
    if(direction!="BUY" && direction!="SELL")
    {
       Comment("NEXORA TRADE PLAN\nInstrument: ",_Symbol," | Timeframe: ",interval,
@@ -363,6 +370,10 @@ void ProcessSignal()
               "\nAnalysed closed candle: ",signalTime,
               "\nNo entry, stop loss or take profit: mixed/insufficient technical evidence.",
               "\nMethod: EMA20/EMA50 + RSI14 + momentum. Manual mode; no order placed.");
+      Print("NEXORA 5-MINUTE UPDATE | ",_Symbol," | ",interval,
+            " | WAIT | score=",DoubleToString(score,0),"/100",
+            " | Entry=N/A | SL=N/A | TP=N/A | candle=",signalTime,
+            " | No trade: technical conditions are not aligned.");
       g_requestBusy=false; return;
    }
    if(!validPlan)
@@ -372,7 +383,12 @@ void ProcessSignal()
               " | Score: ",DoubleToString(score,0),"/100",
               "\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
               "\nAnalysed candle: ",signalTime);
-      Print("NEXORA SAFETY BLOCK: invalid entry/SL/TP/average range for ",_Symbol);
+      Print("NEXORA 5-MINUTE UPDATE | ",_Symbol," | ",interval,
+            " | REJECTED INVALID PLAN | score=",DoubleToString(score,0),
+            " | Entry=",DoubleToString(entry,_Digits),
+            " | SL=",DoubleToString(sl,_Digits),
+            " | TP=",DoubleToString(tp,_Digits),
+            " | No order sent.");
       g_requestBusy=false; return;
    }
    bool newSignal=(signalKey!=g_lastSignalKey);
@@ -391,7 +407,7 @@ void ProcessSignal()
       // Desktop pop-ups are disabled; the full trade plan is displayed on the chart.
    }
    else
-      Print("NEXORA: signal for ",providerSymbol," logged; pop-up suppressed by the 10-minute alert limit.");
+      Print("NEXORA: signal for ",providerSymbol," logged; repeat alert suppressed by the 5-minute alert limit.");
    AppendSignalHistory(direction,score,entry,sl,tp,signalTime,notifyUser);
    if(!InpEnableAutoExecution)
    {
@@ -498,7 +514,7 @@ int OnInit()
    trade.SetExpertMagicNumber(InpMagicNumber);
    g_lastChartSymbol=_Symbol;
    g_lastChartPeriod=_Period;
-   EventSetTimer(15); // Keep heartbeat alive independently of signal checks.
+   EventSetTimer(10); // Keep the backend heartbeat alive independently of signal checks.
    SendHeartbeat();
    ProcessSignal();
    g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
@@ -512,7 +528,7 @@ void OnTimer()
       g_nextSignalCheck=TimeCurrent()+MathMax(60,InpPollSeconds);
       return;
    }
-   if(TimeCurrent()-g_lastHeartbeat>=30) SendHeartbeat();
+   if(TimeCurrent()-g_lastHeartbeat>=20) SendHeartbeat();
    if(TimeCurrent()>=g_nextSignalCheck)
    {
       ProcessSignal();
