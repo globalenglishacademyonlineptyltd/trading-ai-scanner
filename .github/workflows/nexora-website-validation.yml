@@ -174,3 +174,14 @@ jobs:
           $compiled = [System.IO.Path]::ChangeExtension($source, '.ex5')
           if (-not (Test-Path $compiled)) { throw 'MetaEditor reported no errors but did not produce the NEXORA EX5 file.' }
           Write-Host "NEXORA EA compiled successfully: $compiled"
+
+      - name: Publish compiled NEXORA EA files
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXORA-MT5-compiled
+          path: |
+            mt5/NEXORA_Trading_EA.mq5
+            mt5/NEXORA_Trading_EA.ex5
+            mt5/NEXORA_Trading_EA.log
+          if-no-files-found: error
+          retention-days: 90
