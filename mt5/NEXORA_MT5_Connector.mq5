@@ -220,13 +220,14 @@ bool IsOurPosition(string symbol)
    if(!PositionSelect(symbol)) return false;
    return IsOurMagic(PositionGetInteger(POSITION_MAGIC));
 }
-int CountOurPositions()
+int CountOurPositions(string symbol)
 {
    int count=0;
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ticket=PositionGetTicket(i);
-      if(ticket>0 && IsOurMagic(PositionGetInteger(POSITION_MAGIC))) count++;
+      if(ticket>0 && PositionGetString(POSITION_SYMBOL)==symbol &&
+         IsOurMagic(PositionGetInteger(POSITION_MAGIC))) count++;
    }
    return count;
 }
@@ -464,6 +465,10 @@ void ProcessSignal()
    else if(direction=="SELL" && sl<=entry) planRejectReason="SELL stop loss must be above entry";
    else if(direction=="SELL" && tp>=entry) planRejectReason="SELL take profit must be below entry";
    bool validPlan=(planRejectReason=="");
+   if(validPlan)
+      Print("NEXORA PLAN ACCEPTED: ",_Symbol," ",interval," ",direction,
+            " | E ",DoubleToString(entry,_Digits)," SL ",DoubleToString(sl,_Digits),
+            " TP ",DoubleToString(tp,_Digits));
    if(!validPlan)
       Print("NEXORA PLAN REJECT REASON: ",planRejectReason,
             " | raw direction=",JsonValue(json,"direction"),
@@ -569,7 +574,7 @@ void ProcessSignal()
       Print("NEXORA: trading permissions are disabled. No order sent.");
       g_requestBusy=false; return;
    }
-   if(CountOurPositions()>=InpMaxOpenPositions)
+   if(CountOurPositions(_Symbol)>=InpMaxOpenPositions)
    {
       Print("NEXORA: maximum open position limit reached.");
       g_requestBusy=false; return;
@@ -645,7 +650,9 @@ void ProcessSignal()
    if(direction=="BUY") sent=trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
    else sent=trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
    if(!sent) Print("NEXORA order rejected: ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
-   else Print("NEXORA demo order submitted. Ticket/deal: ",trade.ResultDeal());
+   else Print("NEXORA demo order submitted. Ticket/deal: ",trade.ResultDeal(),
+              " | timeframe=",interval," | magic=",timeframeMagic,
+              " | riskBudget=",DoubleToString(riskBudget,2)," ",AccountInfoString(ACCOUNT_CURRENCY));
    g_requestBusy=false;
 }
 int OnInit()
