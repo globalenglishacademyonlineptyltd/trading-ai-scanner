@@ -11,6 +11,7 @@ const PORT = Number(process.env.PORT || 8080);
 // Order execution happens inside the user's MT5 Expert Advisor; server-side auto mode stays OFF.
 let automaticTradingEnabled = false;
 let mt5LastHeartbeat = null;
+const mt5SignalCache = new Map();
 const brokerExecutionReady = false;
 const automationStatus = () => ({
   enabled: automaticTradingEnabled,
@@ -404,6 +405,40 @@ async function route(req, res, url) {
     const result=analyseTickStream(symbol,ticks,digits);
     console.info('NEXORA tick analysis',{symbol,count:ticks.length,direction:result.direction,score:result.score});
     return send(res,200,result);
+  }
+  if (p === '/api/mt5/signal-publish' && req.method === 'POST') {
+    if (!requireMt5Token(req)) return send(res,401,{error:'MT5 connector authentication failed or server token is not configured.'});
+    let raw=''; for await (const chunk of req) { raw+=chunk; if(raw.length>16384) return send(res,413,{error:'Published signal payload too large.'}); }
+    let body; try { body=JSON.parse(raw||'{}'); } catch { return send(res,400,{error:'Invalid JSON signal payload.'}); }
+    const symbol=String(body.symbol||'').trim();
+    const interval=String(body.interval||'').trim();
+    const direction=String(body.direction||'').toUpperCase();
+    const score=safeNumber(body.score), tickScore=safeNumber(body.tickScore);
+    const entry=safeNumber(body.entry), stopLoss=safeNumber(body.stopLoss), takeProfit=safeNumber(body.takeProfit);
+    if(!symbol||symbol.length>100||!interval||interval.length>30||!['BUY','SELL'].includes(direction)||
+       score===null||score<0||score>100||tickScore===null||tickScore<0||tickScore>100||
+       entry===null||entry<=0||stopLoss===null||stopLoss<=0||takeProfit===null||takeProfit<=0)
+      return send(res,400,{error:'A confirmed BUY/SELL signal with valid symbol, timeframe, scores, entry, stop-loss and take-profit is required.'});
+    const key=symbol+'|'+interval;
+    const record={symbol,interval,direction,score,tickScore,entry,stopLoss,takeProfit,
+      candleTimestamp:String(body.timestamp||''),receivedAt:new Date().toISOString(),
+      source:'MT5 closed candles + live bid/ask tick confirmation'};
+    mt5SignalCache.set(key,record);
+    if(mt5SignalCache.size>500){
+      const oldest=[...mt5SignalCache.entries()].sort((a,b)=>Date.parse(a[1].receivedAt)-Date.parse(b[1].receivedAt)).slice(0,100);
+      for(const [oldKey] of oldest) mt5SignalCache.delete(oldKey);
+    }
+    console.info('NEXORA confirmed MT5 signal published',{symbol,interval,direction,score,tickScore});
+    return send(res,200,{ok:true,signal:record});
+  }
+  if (p === '/api/mt5/signals' && req.method === 'GET') {
+    const signals=[...mt5SignalCache.values()].map(signal=>({
+      ...signal,
+      status:Date.now()-Date.parse(signal.receivedAt)>15*60*1000?'STALE':'CONFIRMED'
+    })).sort((a,b)=>Date.parse(b.receivedAt)-Date.parse(a.receivedAt));
+    const heartbeatFresh=!!mt5LastHeartbeat&&Date.now()-Date.parse(mt5LastHeartbeat.receivedAt)<60000;
+    return send(res,200,{signals,connected:heartbeatFresh&&mt5LastHeartbeat.connected,
+      lastHeartbeat:heartbeatFresh?mt5LastHeartbeat.receivedAt:null,updatedAt:new Date().toISOString()});
   }
   if (p === '/api/mt5/signal-local' && req.method === 'POST') {
     if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
