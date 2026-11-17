@@ -376,7 +376,7 @@ void SendHeartbeat()
    payload+="\"trade_allowed\":"+(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)?"true":"false")+",";
    payload+="\"account_trade_allowed\":"+(AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)?"true":"false")+"}";
    if(HttpPost(TrimSlash(InpNexoraBaseUrl)+"/api/mt5/heartbeat",payload))
-      g_lastHeartbeat=TimeCurrent();
+      g_lastHeartbeat=TimeLocal();
 }
 void ManageTrailingStop()
 {
@@ -579,7 +579,7 @@ int OnInit()
    EventSetTimer(15); // Frequent timer keeps the server heartbeat fresh and trailing stops responsive.
    SendHeartbeat();
    ScanMarketWatch();
-   g_lastScan=TimeCurrent();
+   g_lastScan=TimeLocal();
    return INIT_SUCCEEDED;
 }
 void ScanMarketWatch()
@@ -604,8 +604,8 @@ void ScanMarketWatch()
 void OnTimer()
 {
    if(RefreshChartContext()) Print("NEXORA chart changed; Market Watch scan will use selected timeframe.");
-   if(TimeCurrent()-g_lastHeartbeat>=30) SendHeartbeat();
-   if(TimeCurrent()-g_lastScan>=MathMax(120,InpPollSeconds))
+   if(TimeLocal()-g_lastHeartbeat>=30) SendHeartbeat();
+   if(TimeLocal()-g_lastScan>=MathMax(120,InpPollSeconds))
    {
       ScanMarketWatch();
       g_lastScan=TimeCurrent();
