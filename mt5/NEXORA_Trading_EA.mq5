@@ -359,27 +359,34 @@ void SendHeartbeat()
 }
 void ManageTrailingStop()
 {
-   if(InpTrailingStopPoints<=0 || !IsOurPosition(_Symbol)) return;
-   long type=PositionGetInteger(POSITION_TYPE);
-   double oldSL=PositionGetDouble(POSITION_SL);
-   double tp=PositionGetDouble(POSITION_TP);
-   double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
-   int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
-   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-   double distance=InpTrailingStopPoints*point;
-   double step= MathMax(1,InpTrailingStepPoints)*point;
-   if(type==POSITION_TYPE_BUY)
+   if(InpTrailingStopPoints<=0) return;
+   for(int i=PositionsTotal()-1;i>=0;i--)
    {
-      double candidate=NormalizeDouble(bid-distance,digits);
-      if(candidate>0 && (oldSL==0 || candidate>oldSL+step) && candidate<bid)
-         trade.PositionModify(_Symbol,candidate,tp);
-   }
-   else if(type==POSITION_TYPE_SELL)
-   {
-      double candidate=NormalizeDouble(ask+distance,digits);
-      if(candidate>ask && (oldSL==0 || candidate<oldSL-step))
-         trade.PositionModify(_Symbol,candidate,tp);
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || PositionGetInteger(POSITION_MAGIC)!=InpMagicNumber) continue;
+      string symbol=PositionGetString(POSITION_SYMBOL);
+      long type=PositionGetInteger(POSITION_TYPE);
+      double oldSL=PositionGetDouble(POSITION_SL);
+      double tp=PositionGetDouble(POSITION_TP);
+      double point=SymbolInfoDouble(symbol,SYMBOL_POINT);
+      int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
+      double bid=SymbolInfoDouble(symbol,SYMBOL_BID);
+      double ask=SymbolInfoDouble(symbol,SYMBOL_ASK);
+      if(point<=0 || bid<=0 || ask<=0) continue;
+      double distance=InpTrailingStopPoints*point;
+      double step=MathMax(1,InpTrailingStepPoints)*point;
+      if(type==POSITION_TYPE_BUY)
+      {
+         double candidate=NormalizeDouble(bid-distance,digits);
+         if(candidate>0 && (oldSL==0 || candidate>oldSL+step) && candidate<bid)
+            trade.PositionModify(ticket,candidate,tp);
+      }
+      else if(type==POSITION_TYPE_SELL)
+      {
+         double candidate=NormalizeDouble(ask+distance,digits);
+         if(candidate>ask && (oldSL==0 || candidate<oldSL-step))
+            trade.PositionModify(ticket,candidate,tp);
+      }
    }
 }
 void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
