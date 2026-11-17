@@ -28,7 +28,7 @@ jobs:
           node --check public/app.js
       - name: Smoke-test website and MT5 authentication
         run: |
-          PORT=8787 node server.js >/tmp/nexora-server.log 2>&1 &
+          PORT=8787 NEXORA_MT5_TOKEN=nexora-ci-test-token-0123456789abcdef node server.js >/tmp/nexora-server.log 2>&1 &
           SERVER_PID=$!
           trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
           for attempt in $(seq 1 20); do
@@ -44,6 +44,25 @@ jobs:
             --data '{"chartSymbol":"EURUSD","interval":"PERIOD_H1","candles":[]}')
           test "$HTTP_CODE" = "401"
           node --input-type=module -e "import fs from 'node:fs'; const body=JSON.parse(fs.readFileSync('/tmp/nexora-mt5-response.json','utf8')); if(!String(body.error||'').toLowerCase().includes('auth')) process.exit(1); console.log('Unauthenticated MT5 signal request correctly rejected.');"
+          node --input-type=module <<'NODE'
+          const token = 'nexora-ci-test-token-0123456789abcdef';
+          const now = Date.now();
+          const ticks = Array.from({length: 120}, (_, i) => {
+            const bid = 1.10000 + i * 0.00001;
+            return {timeMsc: now - 60000 + i * 500, bid, ask: bid + 0.00010};
+          });
+          const response = await fetch('http://127.0.0.1:8787/api/mt5/signal-ticks', {
+            method: 'POST',
+            headers: {'content-type': 'application/json', authorization: 'Bearer ' + token},
+            body: JSON.stringify({chartSymbol: 'EURUSD', digits: 5, ticks})
+          });
+          const result = await response.json();
+          if (!response.ok || result.symbol !== 'EURUSD' || !['BUY','SELL','WAIT'].includes(result.direction) || result.source !== 'MT5 live bid/ask ticks') {
+            console.error('MT5 tick analysis test failed:', response.status, result);
+            process.exit(1);
+          }
+          console.log('Authenticated MT5 live tick-analysis endpoint passed.');
+          NODE
       - name: Verify safety and intelligence invariants
         run: |
           node --input-type=module <<'NODE'
