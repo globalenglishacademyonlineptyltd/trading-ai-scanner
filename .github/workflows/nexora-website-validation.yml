@@ -150,11 +150,19 @@ jobs:
           $mql5Root = Split-Path (Split-Path (Split-Path $tradeInclude.FullName -Parent) -Parent) -Parent
           $source = Join-Path $env:GITHUB_WORKSPACE 'mt5\NEXORA_Trading_EA.mq5'
           $arguments = @("/compile:`"$source`"", "/include:`"$mql5Root`"", '/log')
-          Start-Process -FilePath $editor.FullName -ArgumentList $arguments -Wait
+          $editorProcess = Start-Process -FilePath $editor.FullName -ArgumentList $arguments -PassThru
 
-          $logPath = "$source.log"
-          if (-not (Test-Path $logPath)) { throw "MetaEditor did not create the compile log: $logPath" }
+          $logPath = [System.IO.Path]::ChangeExtension($source, '.log')
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path $logPath) -and (Get-Date) -lt $deadline -and -not $editorProcess.HasExited) {
+            Start-Sleep -Seconds 2
+          }
+          if (-not (Test-Path $logPath)) {
+            if (-not $editorProcess.HasExited) { Stop-Process -Id $editorProcess.Id -Force }
+            throw "MetaEditor did not create the expected compile log: $logPath"
+          }
           $compileLog = Get-Content -Path $logPath -Raw
+          if (-not $editorProcess.HasExited) { Stop-Process -Id $editorProcess.Id -Force }
           Write-Host $compileLog
           $result = [regex]::Match($compileLog, 'Result:\s*(\d+)\s+errors?,\s*(\d+)\s+warnings?')
           if (-not $result.Success) { throw 'Could not read the MetaEditor compilation result from its log.' }
