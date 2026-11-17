@@ -106,3 +106,42 @@ jobs:
           assert.match(app, /setInterval\(refreshLiveScan,120000\)/);
           console.log('NEXORA website safety and intelligence invariants passed.');
           NODE
+
+
+  compile-mql5:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install MetaTrader 5 and compile the Expert Advisor
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList '/auto' -Wait
+
+          $terminalData = Join-Path $env:APPDATA 'MetaQuotes\Terminal'
+          $installRoots = @(
+            (Join-Path $env:ProgramFiles 'MetaTrader 5'),
+            $terminalData
+          )
+          $editor = Get-ChildItem -Path $installRoots -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          $tradeInclude = Get-ChildItem -Path $installRoots -Filter 'Trade.mqh' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $editor) { throw 'MetaEditor 64-bit was not found after MetaTrader 5 installation.' }
+          if (-not $tradeInclude) { throw 'The standard MQL5 Trade.mqh include file was not found.' }
+
+          $mql5Root = Split-Path (Split-Path (Split-Path $tradeInclude.FullName -Parent) -Parent) -Parent
+          $source = Join-Path $env:GITHUB_WORKSPACE 'mt5\NEXORA_Trading_EA.mq5'
+          $arguments = @("/compile:`"$source`"", "/include:`"$mql5Root`"", '/log')
+          Start-Process -FilePath $editor.FullName -ArgumentList $arguments -Wait
+
+          $logPath = "$source.log"
+          if (-not (Test-Path $logPath)) { throw "MetaEditor did not create the compile log: $logPath" }
+          $compileLog = Get-Content -Path $logPath -Raw
+          Write-Host $compileLog
+          $result = [regex]::Match($compileLog, 'Result:\s*(\d+)\s+errors?,\s*(\d+)\s+warnings?')
+          if (-not $result.Success) { throw 'Could not read the MetaEditor compilation result from its log.' }
+          if ([int]$result.Groups[1].Value -ne 0) { throw "MetaEditor reported $($result.Groups[1].Value) compilation errors." }
+          $compiled = [System.IO.Path]::ChangeExtension($source, '.ex5')
+          if (-not (Test-Path $compiled)) { throw 'MetaEditor reported no errors but did not produce the NEXORA EX5 file.' }
+          Write-Host "NEXORA EA compiled successfully: $compiled"
