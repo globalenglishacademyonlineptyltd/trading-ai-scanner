@@ -6,6 +6,7 @@ on:
     paths:
       - "server.js"
       - "public/**"
+      - "mt5/**"
       - ".github/workflows/nexora-website-validation.yml"
 
 permissions:
@@ -45,6 +46,7 @@ jobs:
           const server = fs.readFileSync('server.js', 'utf8');
           const app = fs.readFileSync('public/app.js', 'utf8');
           const html = fs.readFileSync('public/index.html', 'utf8');
+          const ea = fs.readFileSync('mt5/NEXORA_Trading_EA.mq5', 'utf8');
           assert.match(server, /NEWS_REFRESH_INTERVAL_MS\s*=\s*2\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
           assert.match(server, /SCAN_INTERVAL_MS\s*=\s*Math\.max\(120000, Number\(process\.env\.NEXORA_SCAN_INTERVAL_MS\) \|\| 120000\)/);
           assert.match(server, /function analyseVolume\(/);
