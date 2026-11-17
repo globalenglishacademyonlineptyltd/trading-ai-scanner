@@ -44,7 +44,11 @@ const LIVE_WATCHLIST = [
   { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', market: 'crypto' },
   { symbol: 'AAPL', name: 'Apple', market: 'shares' }
 ];
-const SCAN_INTERVAL_MS = 15 * 60 * 1000;
+const SCAN_INTERVAL_MS = 15 * 60 * 1000; // Provider quota-conscious market scan cadence
+const NEWS_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const GLOBAL_NEWS_QUERY = 'global financial markets OR crude oil OR energy OR central banks OR inflation OR interest rates OR stocks OR bonds OR currencies OR commodities OR cryptocurrency';
+let globalNewsIntel = { items: [], source: 'Not loaded', lastUpdated: null, nextRefreshAt: null, stale: true, error: null };
+let newsRefreshPromise = null;
 let liveScan = { instruments: [], lastUpdated: null, nextScanAt: null, scanning: false, error: null };
 let scanPromise = null;
 let lastScanStartedAt = 0;
@@ -221,6 +225,24 @@ async function getNews(query) {
     const error=new Error('News providers are temporarily unavailable. Please try again in a few minutes.');error.status=503;throw error;
   }
 }
+async function refreshGlobalNews(force = false) {
+  if (newsRefreshPromise) return newsRefreshPromise;
+  if (!force && globalNewsIntel.lastUpdated && Date.now() < Date.parse(globalNewsIntel.nextRefreshAt || 0)) return globalNewsIntel;
+  newsRefreshPromise = (async () => {
+    try {
+      const result = await getNews(GLOBAL_NEWS_QUERY);
+      globalNewsIntel = { items: result.items || [], source: result.source || 'Financial news providers',
+        lastUpdated: new Date().toISOString(), nextRefreshAt: new Date(Date.now() + NEWS_REFRESH_INTERVAL_MS).toISOString(),
+        stale: !!result.stale, error: null };
+    } catch (error) {
+      globalNewsIntel = { ...globalNewsIntel, stale: true, error: error.message,
+        nextRefreshAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+    }
+    return globalNewsIntel;
+  })().finally(() => { newsRefreshPromise = null; });
+  return newsRefreshPromise;
+}
+
 async function runLiveScan(force = false) {
   if (scanPromise) return scanPromise;
   if (!force && lastScanStartedAt && Date.now() - lastScanStartedAt < SCAN_INTERVAL_MS && liveScan.lastUpdated) return liveScan;
@@ -363,8 +385,16 @@ async function route(req, res, url) {
     const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
     return send(res,200,await getSeries(symbol,url.searchParams.get('interval')||'1h',Math.min(500,Math.max(30,Number(url.searchParams.get('outputsize')||100)))));
   }
+  if (p === '/api/news/status') {
+    if (!globalNewsIntel.lastUpdated) await refreshGlobalNews(true);
+    return send(res,200,globalNewsIntel);
+  }
   if (p === '/api/news') {
-    const query=url.searchParams.get('q')||'markets OR finance OR central bank OR inflation';
+    const query=url.searchParams.get('q');
+    if (!query) {
+      if (!globalNewsIntel.lastUpdated || Date.now() >= Date.parse(globalNewsIntel.nextRefreshAt || 0)) await refreshGlobalNews(true);
+      return send(res,200,{items:globalNewsIntel.items,source:globalNewsIntel.source,retrievedAt:globalNewsIntel.lastUpdated,nextRefreshAt:globalNewsIntel.nextRefreshAt,stale:globalNewsIntel.stale,error:globalNewsIntel.error});
+    }
     return send(res,200,{...await getNews(query),retrievedAt:new Date().toISOString()});
   }
   if (p === '/api/signals') {
@@ -403,4 +433,4 @@ const server = http.createServer(async (req,res)=>{
     res.end(data);
   } catch { res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});res.end('Not found'); }
 });
-server.listen(PORT,'0.0.0.0',()=>{ console.log(`NEXORA AI listening on ${PORT}`); runLiveScan(true); setInterval(()=>runLiveScan(true),SCAN_INTERVAL_MS).unref(); });
+server.listen(PORT,'0.0.0.0',()=>{ console.log(`NEXORA AI listening on ${PORT}`); runLiveScan(true); refreshGlobalNews(true); setInterval(()=>runLiveScan(true),SCAN_INTERVAL_MS).unref(); setInterval(()=>refreshGlobalNews(true),NEWS_REFRESH_INTERVAL_MS).unref(); });
