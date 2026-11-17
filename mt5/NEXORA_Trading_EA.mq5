@@ -253,6 +253,17 @@ bool CalculateRiskLots(string symbol,string direction,double entry,double stop,
 bool CalculateExistingAccountRisk(double &totalRisk)
 {
    totalRisk=0.0;
+   // Pending orders can become exposure between checks; block until their risk is modelled.
+   for(int j=OrdersTotal()-1;j>=0;j--)
+   {
+      ulong orderTicket=OrderGetTicket(j);
+      if(orderTicket>0)
+      {
+         Print("NEXORA RISK BLOCK: pending order ",orderTicket,
+               " exists. Manage pending orders before new automatic entries.");
+         return false;
+      }
+   }
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ticket=PositionGetTicket(i);
@@ -276,7 +287,7 @@ bool CalculateExistingAccountRisk(double &totalRisk)
                ". Error=",GetLastError());
          return false;
       }
-      totalRisk+=MathAbs(profit);
+      totalRisk+=MathMax(0.0,-profit);
    }
    return true;
 }
@@ -444,7 +455,8 @@ void ProcessSignal()
    }
    if(InpRiskPerTradePercent<=0 || InpRiskPerTradePercent>5 ||
       InpMaxAccountRiskPercent<=0 || InpMaxAccountRiskPercent>10 ||
-      InpRiskPerTradePercent>InpMaxAccountRiskPercent)
+      InpRiskPerTradePercent>InpMaxAccountRiskPercent ||
+      InpMaxOpenPositions<1 || InpMaxOpenPositions>3)
    {
       Print("NEXORA RISK BLOCK: invalid risk settings.");
       g_requestBusy=false; return;
