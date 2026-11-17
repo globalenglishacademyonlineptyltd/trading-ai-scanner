@@ -25,6 +25,17 @@ function renderLiveScan(data){
     const signal=x.direction||'WAIT';
     return '<div class="opp"><div class="instrument">'+escapeHtml(x.symbol)+'<small>'+escapeHtml(x.name||x.market||'Provider instrument')+'</small></div><div class="direction '+(signal==='BUY'?'high':signal==='SELL'?'sell':'medium')+'">'+escapeHtml(signal)+'</div><div class="confidence-number medium">'+escapeHtml(x.score)+'<small>/100 technical</small></div><div>'+fmt(x.lastPrice)+'<small>'+escapeHtml(x.changePercent===null?'Change unavailable':fmt(x.changePercent,3)+'%')+'</small></div><div>'+(x.plan?'1:'+fmt(x.plan.riskReward,2):'—')+'<small>R:R</small></div></div>';
   }).join('');
+  const catalystPanel=$('marketCatalysts');
+  if(catalystPanel){
+    catalystPanel.innerHTML=live.map(x=>{
+      const v=x.volume||{};
+      const volumeText=v.available
+        ? 'Volume '+fmt(v.volume)+' · '+(v.relativeVolume20===null?'relative comparison unavailable':fmt(v.relativeVolume20,2)+'× 20-bar average')+' · '+escapeHtml(v.intensity||'')
+        : 'Volume unavailable: '+escapeHtml(v.explanation||'provider did not supply enough observations');
+      const headlines=(x.relatedHeadlines||[]).map(h=>'<li><a href="'+escapeHtml(h.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(h.title)+'</a><small>'+escapeHtml(h.source||'News source')+' · topic match only</small></li>').join('');
+      return '<div class="opp catalyst-item"><div class="instrument">'+escapeHtml(x.symbol)+'<small>'+escapeHtml(x.name||x.market||'Instrument')+'</small></div><div class="muted">'+volumeText+'</div><div class="muted">'+escapeHtml(v.interpretation||'No volume interpretation available.')+'</div><div class="muted">'+(headlines?'<ul>'+headlines+'</ul>':'No matching headline found in the current news cache.')+'</div></div>';
+    }).join('');
+  }
   const top=[...live].sort((x,y)=>y.score-x.score)[0];
   $('bestSymbol').textContent=top.symbol;
   $('bestSignal').textContent=top.direction;
