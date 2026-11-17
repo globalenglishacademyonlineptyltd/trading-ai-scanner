@@ -442,10 +442,10 @@ void ProcessSignal()
    if(timeframeIndex<0) { g_requestBusy=false; return; }
    if(direction!="BUY" && direction!="SELL")
    {
-      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\\nNEXORA TIMEFRAME SIGNAL\\nInstrument: ",_Symbol," | Timeframe: ",interval,
-              "\\nSignal: WAIT | Technical score: ",DoubleToString(score,0),"/100",
-              "\\nAnalysed closed candle: ",signalTime,
-              "\\nNo trade proposed. Entry, stop loss and take profit are not applicable to WAIT.");
+      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA TIMEFRAME SIGNAL\nInstrument: ",_Symbol," | Timeframe: ",interval,
+              "\nSignal: WAIT | Technical score: ",DoubleToString(score,0),"/100",
+              "\nAnalysed closed candle: ",signalTime,
+              "\nNo trade proposed. Entry, stop loss and take profit are not applicable to WAIT.");
       Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
             " | E -- SL -- TP -- | NO TRADE");
       g_requestBusy=false; return;
@@ -495,7 +495,7 @@ void ProcessSignal()
    panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\n";
    panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
-   panel+="\\nIndependent timeframe scan: "+interval+" | AUTO threshold: "+DoubleToString(InpMinimumAutoScore,0)+"/100";
+   panel+="\nIndependent timeframe scan: "+interval+" | AUTO threshold: "+DoubleToString(InpMinimumAutoScore,0)+"/100";
    panel+="\nBUILD: "+NEXORA_BUILD_ID;
    Comment(panel);
    Print("NEXORA BUILD: ",NEXORA_BUILD_ID);
@@ -594,6 +594,7 @@ void ProcessSignal()
    // the original stop distance. This scales appropriately across timeframes.
    double allowedDeviation=MathMax(InpMaxPriceDeviationPoints*point,riskDistance*0.25);
    double liveDeviation=MathAbs(current-entry);
+   int executionDeviationPoints=(int)MathMin(100000,MathMax(InpMaxPriceDeviationPoints,MathCeil(allowedDeviation/point)));
    if(liveDeviation>allowedDeviation)
    {
       Print("NEXORA AUTO BLOCK: quote moved too far from signal close. ",_Symbol," ",interval,
@@ -669,7 +670,7 @@ void ProcessSignal()
       g_requestBusy=false; return;
    }
    trade.SetExpertMagicNumber(timeframeMagic);
-   trade.SetDeviationInPoints(InpMaxPriceDeviationPoints);
+   trade.SetDeviationInPoints(executionDeviationPoints);
    bool sent=false;
    if(direction=="BUY") sent=trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
    else sent=trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
