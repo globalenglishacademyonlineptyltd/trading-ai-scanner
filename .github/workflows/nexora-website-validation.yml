@@ -101,6 +101,11 @@ jobs:
           assert.match(ea, /signal-ticks/);
           assert.match(ea, /conflicts with tick analysis/);
           assert.match(ea, /InpAnalysisTimeframe\s*=\s*PERIOD_CURRENT/);
+          assert.match(ea, /InpScanM5\s*=\s*false/);
+          assert.match(ea, /InpScanM10\s*=\s*false/);
+          assert.match(ea, /InpScanH1\s*=\s*false/);
+          assert.match(ea, /InpScanH4\s*=\s*false/);
+          assert.match(ea, /SignalAlreadyProcessed\(signalKey\)/);
           assert.match(ea, /ManageTrailingStop\(\)/);
           assert.match(ea, /trade\.PositionModify\(ticket/);
           assert.match(app, /setInterval\(refreshLiveScan,120000\)/);
