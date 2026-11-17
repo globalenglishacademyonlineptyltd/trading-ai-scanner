@@ -505,7 +505,8 @@ void ProcessSignal()
          " TP ",DoubleToString(tp,_Digits),
          " | AUTO ",InpEnableAutoExecution?"ON":"OFF");
 
-   // Independent timeframe mode: no cross-timeframe agreement gate.\n   if(!validPlan)
+   // Independent timeframe mode: no cross-timeframe agreement gate.
+   if(!validPlan)
    {
       g_lastStatus="INVALID TRADE PLAN - levels failed validation";
       RenderTimeframeOverview();
