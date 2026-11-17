@@ -57,5 +57,13 @@ jobs:
           assert.equal((app.match(/const NEWS_AUTO_REFRESH_MS/g) || []).length, 1);
           assert.match(html, /id="marketCatalysts"/);
           assert.match(html, /Signal refresh: every 2 minutes/);
+          assert.match(ea, /InpEnableAutoExecution\\s*=\\s*false/);
+          assert.match(ea, /InpRiskPerTradePercent\\s*=\\s*1\\.0/);
+          assert.match(ea, /InpMaxAccountRiskPercent\\s*=\\s*3\\.0/);
+          assert.match(ea, /InpMaxOpenPositions\\s*=\\s*3/);
+          assert.match(ea, /InpPollSeconds\\s*=\\s*120/);
+          assert.match(ea, /OrderCalcProfit\\(/);
+          assert.match(ea, /CalculateExistingAccountRisk\\(/);
+          assert.doesNotMatch(ea, /InpFixedLots/);
           console.log('NEXORA website safety and intelligence invariants passed.');
           NODE
