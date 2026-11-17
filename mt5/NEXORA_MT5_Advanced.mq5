@@ -24,6 +24,8 @@ string candleContext="Not checked";
 string candleDirection="WAIT";
 double candleScore=0;
 bool candleReady=false;
+long candleLastVolume=0;
+int latestTickCount=0;
 string token="",lastSignal="",statusText="Starting";
 ulong nextScan=0,lastHeartbeat=0;
 bool busy=false;
@@ -51,7 +53,7 @@ bool SendHeartbeat(){
 }
 bool GetTickPayload(string &payload){
  MqlTick ticks[];ulong now=(ulong)TimeCurrent()*1000,from=now>600000?now-600000:0;
- int n=CopyTicks(_Symbol,ticks,COPY_TICKS_ALL,from,300);if(n<60){statusText="Waiting for 60 recent ticks ("+IntegerToString(n)+")";return false;}
+ int n=CopyTicks(_Symbol,ticks,COPY_TICKS_ALL,from,300);latestTickCount=n;if(n<60){statusText="Waiting for 60 recent ticks ("+IntegerToString(n)+")";return false;}
  int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);payload="{\"chartSymbol\":\""+_Symbol+"\",\"digits\":"+IntegerToString(digits)+",\"ticks\":[";
  int count=0;for(int i=0;i<n;i++){if(ticks[i].bid<=0||ticks[i].ask<=0||ticks[i].ask<ticks[i].bid)continue;if(count++)payload+=",";payload+="{\"timeMsc\":"+IntegerToString((long)ticks[i].time_msc)+",\"bid\":"+DoubleToString(ticks[i].bid,digits)+",\"ask\":"+DoubleToString(ticks[i].ask,digits)+"}";}
  payload+="]}";return count>=60;
@@ -72,6 +74,7 @@ bool BuildCandlePayload(string &payload){
  MqlRates rates[];ArraySetAsSeries(rates,false);
  int copied=CopyRates(_Symbol,_Period,1,100,rates);
  if(copied<60)return false;
+ candleLastVolume=(long)rates[copied-1].tick_volume;
  payload="{\"chartSymbol\":\""+_Symbol+"\",\"interval\":\""+EnumToString(_Period)+"\",\"candles\":[";
  for(int i=0;i<copied;i++){
   if(i>0)payload+=",";
@@ -96,6 +99,10 @@ void SendCandleContext(){
  Print("NEXORA candle analysis ",_Symbol," ",candleContext);
 }
 
+void PublishWebsiteSignal(string direction,string reason,double score,double entry,double sl,double tp,string explanation){
+ string payload="{\\"symbol\\":\\""+_Symbol+"\\",\\"direction\\":\\""+direction+"\\",\\"reason\\":\\""+reason+"\\",\\"explanation\\":\\""+explanation+"\\",\\"tickSummary\\":\\"Live bid/ask ticks: "+IntegerToString(latestTickCount)+" samples; tick direction and strength checked\\",\\"candleSummary\\":\\""+candleContext+"; closed chart candles\\",\\"score\\":"+DoubleToString(score,1)+",\\"entry\\":"+DoubleToString(entry,_Digits)+",\\"stopLoss\\":"+DoubleToString(sl,_Digits)+",\\"takeProfit\\":"+DoubleToString(tp,_Digits)+",\\"tradeVolume\\":\\"Not calculated in manual mode; broker contract sizing required\\",\\"marketVolume\\":\\""+IntegerToString(candleLastVolume)+" tick-volume units\\",\\"volumeType\\":\\"MT5 chart tick volume, not centralized exchange traded volume\\",\\"volumeSource\\":\\"MT5 closed chart candle volume field (MqlRates.tick_volume)\\",\\"dataSource\\":\\"Connected broker MT5 bid/ask ticks and chart candles\\",\\"analysisTime\\":\\""+TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS)+"\\",\\"timeframe\\":\\""+EnumToString(_Period)+"\\",\\"eaVersion\\":\\"2.00\\",\\"autoExecution\\":"+(InpEnableAutoExecution?"true":"false")+"}";
+ string response; if(!Request("POST","/api/mt5/publish-signal",payload,response))Print("NEXORA website signal publish failed: ",statusText);
+}
 void Scan(){
  if(busy)return;
  busy=true;
@@ -122,7 +129,7 @@ void Scan(){
   string why=!candleReady?"candle confirmation unavailable":(candleDirection!=tickDir?"tick/candle disagreement":"candle confidence below 55");
   Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\nTick: ",tickDir," ",DoubleToString(tickScore,1),
           " | Candle: ",candleContext,"\nReason: ",why,"\nAuto ",InpEnableAutoExecution?"ON":"OFF");
-  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL WAIT ",_Symbol," | tick=",tickDir," ",tickScore," | candle=",candleContext," | ",why);}
+  PublishWebsiteSignal("WAIT",why,0,0,0,0,"Tick and candle confirmation is missing, conflicting or below the configured threshold. No entry is proposed.");\n  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL WAIT ",_Symbol," | tick=",tickDir," ",tickScore," | candle=",candleContext," | ",why);}
   busy=false;return;
  }
  double tickStrength=tickDir=="BUY"?tickScore:100.0-tickScore;
@@ -142,7 +149,7 @@ void Scan(){
          "\nAuto ",InpEnableAutoExecution?"ON":"OFF"," | Risk ",InpRiskPercent,"%");
  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL ",_Symbol," ",dir," combined score ",DoubleToString(finalScore,1),
      " | tick strength ",DoubleToString(tickStrength,1)," | candle ",candleContext," entry ",entry," SL ",sl," TP ",tp);}
- SaveHistory(dir,finalScore,entry,sl,tp,stamp);
+ SaveHistory(dir,finalScore,entry,sl,tp,stamp);\n PublishWebsiteSignal(dir,"Tick and candle analysts agree",finalScore,entry,sl,tp,"Both independent analyses agree on direction. Review trend, momentum and volume context before placing a manual trade.");
  if(!InpEnableAutoExecution){busy=false;return;}
  if(finalScore<InpMinimumAutoScore){Print("NEXORA auto blocked: unified score below threshold");busy=false;return;}
  string cd="NEXORA_COOLDOWN_"+_Symbol;
