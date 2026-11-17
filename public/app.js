@@ -4,6 +4,8 @@ const $=id=>document.getElementById(id);
 const fmt=(n, max=6)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:max});
 const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 let scanRefreshTimer=null;
+let newsAutoRefreshTimer=null;
+const NEWS_AUTO_REFRESH_MS=2*60*60*1000;
 let latestScan=null;
 function renderLiveScan(data){
   latestScan=data;
@@ -352,7 +354,7 @@ async function analyzeLiveMarket(){
   }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
   finally{button.disabled=false;button.textContent='Analyse live market';}
 }
-async function loadNews(){
+async function loadNews(automatic=false){
   const button=$('loadNews'),out=$('newsFeed');
   button.disabled=true;button.textContent='Loading…';
   try{
@@ -361,9 +363,9 @@ async function loadNews(){
     const data=await r.json();if(!r.ok)throw new Error(data.error||'News request failed');
     const items=data.items||[];
     out.innerHTML=items.length?items.map(a=>'<div class="opp"><div class="instrument"><a href="'+escapeHtml(a.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(a.title)+'</a><small>'+escapeHtml(a.source)+' · '+escapeHtml(a.publishedAt||'Publication time unavailable')+'</small></div><div class="muted">News</div></div>').join(''):'<p class="muted">No matching articles were returned.</p>';
-    $('newsUpdated').textContent=(data.source||'News feed')+' · '+new Date(data.retrievedAt).toLocaleTimeString()+(data.stale?' · cached':'');
+    $('newsUpdated').textContent=(data.source||'News feed')+' · Updated '+(data.retrievedAt?new Date(data.retrievedAt).toLocaleString():'time unavailable')+(data.stale?' · STALE':'')+(data.nextRefreshAt?' · Next refresh '+new Date(data.nextRefreshAt).toLocaleTimeString():'');
   }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
-  finally{button.disabled=false;button.textContent='Load news';}
+  finally{if(!automatic){button.disabled=false;button.textContent='Load news';}}
 }
 $('analyzeLive').addEventListener('click',analyzeLiveMarket);
 $('refreshIntelligence').addEventListener('click',loadIntelligenceStatus);
