@@ -25,6 +25,18 @@ jobs:
         run: |
           node --check server.js
           node --check public/app.js
+      - name: Smoke-test website server without broker credentials
+        run: |
+          PORT=8787 node server.js >/tmp/nexora-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8787/api/health > /tmp/nexora-health.json; then
+              break
+            fi
+            sleep 1
+          done
+          node --input-type=module -e "import fs from 'node:fs'; const health=JSON.parse(fs.readFileSync('/tmp/nexora-health.json','utf8')); if(health.ok!==true || health.service!=='NEXORA AI') process.exit(1); console.log('NEXORA health endpoint passed.');"
       - name: Verify safety and intelligence invariants
         run: |
           node --input-type=module <<'NODE'
