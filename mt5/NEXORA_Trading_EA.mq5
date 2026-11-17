@@ -428,6 +428,12 @@ void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
       g_requestBusy=false;
       return;
    }
+   // Automatic execution is restricted to demo accounts, even if the input is enabled.
+   if((ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
+   {
+      Print("NEXORA SAFETY BLOCK: automatic execution is demo-account only. No live-account order sent.");
+      g_requestBusy=false; return;
+   }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
    {
       Print("NEXORA: trading permissions are disabled. No order sent.");
