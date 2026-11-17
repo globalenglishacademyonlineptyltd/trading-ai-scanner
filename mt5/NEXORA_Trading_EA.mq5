@@ -20,7 +20,7 @@ input int    InpMaxOpenPositions = 1;
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 60;
+input int    InpPollSeconds = 120; // Refresh this chart's independent timeframe signal every two minutes
 input long   InpMagicNumber = 24111401;
 
 string g_lastSignalKey = "";
