@@ -11,6 +11,7 @@ const PORT = Number(process.env.PORT || 8080);
 // Order execution happens inside the user's MT5 Expert Advisor; server-side auto mode stays OFF.
 let automaticTradingEnabled = false;
 let mt5LastHeartbeat = null;
+const mt5SignalHistory = [];
 const brokerExecutionReady = false;
 const automationStatus = () => ({
   enabled: automaticTradingEnabled,
@@ -381,6 +382,22 @@ async function route(req, res, url) {
       receivedAt: new Date().toISOString()
     };
     return send(res, 200, { ok: true, mode: 'MT5-EA', heartbeatReceivedAt: mt5LastHeartbeat.receivedAt });
+  }
+  if (p === '/api/mt5/signals' && req.method === 'GET') {
+    const symbol = url.searchParams.get('symbol');
+    const items = symbol ? mt5SignalHistory.filter(x => x.symbol === symbol) : mt5SignalHistory;
+    return send(res, 200, { items: items.slice(0, 100), latest: items[0] || null, source: 'Authenticated NEXORA MT5 Advanced EA', retrievedAt: new Date().toISOString() });
+  }
+  if (p === '/api/mt5/publish-signal' && req.method === 'POST') {
+    if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
+    let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 16384) return send(res, 413, { error: 'Signal payload too large.' }); }
+    let body; try { body = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid signal JSON.' }); }
+    const direction = String(body.direction || '').toUpperCase();
+    if (!['BUY', 'SELL', 'WAIT'].includes(direction) || !body.symbol) return send(res, 400, { error: 'A symbol and BUY, SELL or WAIT direction are required.' });
+    const item = { ...body, direction, source: 'NEXORA MT5 Advanced', receivedAt: new Date().toISOString() };
+    mt5SignalHistory.unshift(item); if (mt5SignalHistory.length > 500) mt5SignalHistory.length = 500;
+    console.info('NEXORA MT5 final signal received', { symbol: item.symbol, direction, reason: item.reason });
+    return send(res, 200, { ok: true, receivedAt: item.receivedAt });
   }
   if (p === '/api/mt5/status' && req.method === 'GET') {
     if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
