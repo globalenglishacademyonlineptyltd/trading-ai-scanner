@@ -225,7 +225,7 @@ function analyseTickStream(symbol,ticks,digits){
     stopLoss:stopLoss===null?null:Number(stopLoss.toFixed(digits)),
     takeProfit:takeProfit===null?null:Number(takeProfit.toFixed(digits)),
     source:'MT5 live bid/ask ticks',
-    indicators:{ema20:fast,ema50:slow,rsi30TickChanges:rsiValue,momentumPercent:momentum,rollingVolatility},
+    indicators:{ema20:fast,ema50:slow,rsi30TickChanges:rsiValue,momentumPercent:momentum,rollingVolatility:volatility},
     warnings:['Tick-driven; no chart timeframe is used.','Technical score is not a win probability.','News, spread and event risk are not included.']};
 }
 
