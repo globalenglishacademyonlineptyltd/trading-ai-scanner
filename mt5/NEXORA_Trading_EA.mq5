@@ -28,6 +28,7 @@ input ENUM_TIMEFRAMES InpAnalysisTimeframe = PERIOD_CURRENT; // PERIOD_CURRENT u
 string g_lastSignalKey = "";
 string g_processedKeys[];
 datetime g_lastHeartbeat = 0;
+datetime g_lastScan = 0;
 string g_lastStatus = "Starting";
 bool g_requestBusy = false;
 string g_lastChartSymbol = "";
@@ -567,7 +568,7 @@ void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
 }
 int OnInit()
 {
-   if(StringFind(InpNexoraBaseUrl,"https://")!=0 || StringLen(InpConnectorToken)<24)
+   if(StringFind(InpNexoraBaseUrl,"https://")!=0 || StringLen(InpConnectorToken)<32)
    {
       Print("NEXORA: Set HTTPS base URL and private connector token in EA Inputs.");
       return INIT_PARAMETERS_INCORRECT;
@@ -575,9 +576,10 @@ int OnInit()
    trade.SetExpertMagicNumber(InpMagicNumber);
    g_lastChartSymbol=_Symbol;
    g_lastChartPeriod=_Period;
-   EventSetTimer(MathMax(15,InpPollSeconds));
+   EventSetTimer(15); // Frequent timer keeps the server heartbeat fresh and trailing stops responsive.
    SendHeartbeat();
    ScanMarketWatch();
+   g_lastScan=TimeCurrent();
    return INIT_SUCCEEDED;
 }
 void ScanMarketWatch()
@@ -603,7 +605,11 @@ void OnTimer()
 {
    if(RefreshChartContext()) Print("NEXORA chart changed; Market Watch scan will use selected timeframe.");
    if(TimeCurrent()-g_lastHeartbeat>=30) SendHeartbeat();
-   ScanMarketWatch();
+   if(TimeCurrent()-g_lastScan>=MathMax(120,InpPollSeconds))
+   {
+      ScanMarketWatch();
+      g_lastScan=TimeCurrent();
+   }
    ManageTrailingStop();
 }
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
