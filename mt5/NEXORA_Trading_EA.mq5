@@ -4,7 +4,7 @@
 //| Strategy source: NEXORA server /api/mt5/signal                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.00"
+#property version   "1.10"
 #property description "NEXORA signals and optional MT5 order execution"
 
 #include <Trade/Trade.mqh>
@@ -15,7 +15,8 @@ input string InpConnectorToken = "";       // Set privately; never commit/share
 input string InpProviderSymbol = ""; // Leave blank to derive the provider symbol from this chart; optional explicit override
 input string InpSignalInterval = "1h";
 input bool   InpEnableAutoExecution = false; // OFF by default
-input double InpFixedLots = 0.01;
+input double InpRiskPerTradePercent = 1.0; // Equity risk budget per automatic trade
+input double InpMaxAccountRiskPercent = 3.0; // Aggregate risk cap including manual positions
 input int    InpMaxOpenPositions = 3; // Account-wide NEXORA magic-number position cap
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
@@ -183,8 +184,14 @@ double JsonDouble(string json,string key)
 }
 bool IsOurPosition(string symbol)
 {
-   if(!PositionSelect(symbol)) return false;
-   return PositionGetInteger(POSITION_MAGIC)==InpMagicNumber;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)==symbol &&
+         PositionGetInteger(POSITION_MAGIC)==InpMagicNumber) return true;
+   }
+   return false;
 }
 int CountOurPositions()
 {
@@ -196,18 +203,82 @@ int CountOurPositions()
    }
    return count;
 }
-double NormalizedLots(double requested)
+int VolumeDigits(double step)
 {
-   double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
-   double maxLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
-   double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
-   if(step<=0) return 0;
-   double lots=MathMax(minLot,MathMin(maxLot,requested));
-   lots=MathFloor(lots/step)*step;
-   int digits=2;
-   if(step<0.01) digits=3;
-   if(step<0.001) digits=4;
-   return NormalizeDouble(lots,digits);
+   for(int digits=0;digits<=8;digits++)
+      if(MathAbs(step-NormalizeDouble(step,digits))<1e-10) return digits;
+   return 8;
+}
+
+// Broker-calculated cash risk in the account deposit currency; never guess contract values.
+bool CalculateRiskLots(string symbol,string direction,double entry,double stop,
+                       double &lots,double &cashRisk)
+{
+   lots=0.0; cashRisk=0.0;
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double step=SymbolInfoDouble(symbol,SYMBOL_VOLUME_STEP);
+   double minLot=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MIN);
+   double maxLot=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX);
+   if(equity<=0 || step<=0 || minLot<=0 || maxLot<minLot) return false;
+   ENUM_ORDER_TYPE action=(direction=="BUY"?ORDER_TYPE_BUY:ORDER_TYPE_SELL);
+   double oneLotProfit=0.0;
+   ResetLastError();
+   if(!OrderCalcProfit(action,symbol,1.0,entry,stop,oneLotProfit))
+   {
+      Print("NEXORA RISK BLOCK: broker cannot calculate risk for ",symbol,
+            ". Error=",GetLastError());
+      return false;
+   }
+   double riskPerLot=MathAbs(oneLotProfit);
+   if(riskPerLot<=0) return false;
+   double budget=equity*InpRiskPerTradePercent/100.0;
+   double rawLots=budget/riskPerLot;
+   double rounded=MathFloor((MathMin(rawLots,maxLot)+1e-12)/step)*step;
+   rounded=NormalizeDouble(rounded,VolumeDigits(step));
+   if(rounded<minLot)
+   {
+      Print("NEXORA RISK BLOCK: minimum lot exceeds the configured risk budget on ",symbol,
+            ". No order sent.");
+      return false;
+   }
+   double finalProfit=0.0;
+   if(!OrderCalcProfit(action,symbol,rounded,entry,stop,finalProfit)) return false;
+   cashRisk=MathAbs(finalProfit);
+   if(cashRisk>budget+0.01) return false;
+   lots=rounded;
+   return true;
+}
+
+// Includes manual and NEXORA positions. Unknown or unprotected risk blocks new entries.
+bool CalculateExistingAccountRisk(double &totalRisk)
+{
+   totalRisk=0.0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      string symbol=PositionGetString(POSITION_SYMBOL);
+      double volume=PositionGetDouble(POSITION_VOLUME);
+      double openPrice=PositionGetDouble(POSITION_PRICE_OPEN);
+      double stop=PositionGetDouble(POSITION_SL);
+      long positionType=PositionGetInteger(POSITION_TYPE);
+      if(stop<=0.0)
+      {
+         Print("NEXORA RISK BLOCK: position ",ticket," on ",symbol,
+               " has no stop-loss. No new automatic entry.");
+         return false;
+      }
+      ENUM_ORDER_TYPE action=(positionType==POSITION_TYPE_BUY?ORDER_TYPE_BUY:ORDER_TYPE_SELL);
+      double profit=0.0;
+      if(!OrderCalcProfit(action,symbol,volume,openPrice,stop,profit))
+      {
+         Print("NEXORA RISK BLOCK: cannot calculate risk for existing position ",ticket,
+               ". Error=",GetLastError());
+         return false;
+      }
+      totalRisk+=MathAbs(profit);
+   }
+   return true;
 }
 bool HttpGet(string url,string &body)
 {
@@ -371,10 +442,49 @@ void ProcessSignal()
       Print("NEXORA: broker minimum stop distance not satisfied.");
       g_requestBusy=false; return;
    }
-   double lots=NormalizedLots(InpFixedLots);
-   if(lots<=0) { Print("NEXORA: invalid volume step."); g_requestBusy=false; return; }
+   if(InpRiskPerTradePercent<=0 || InpRiskPerTradePercent>5 ||
+      InpMaxAccountRiskPercent<=0 || InpMaxAccountRiskPercent>10 ||
+      InpRiskPerTradePercent>InpMaxAccountRiskPercent)
+   {
+      Print("NEXORA RISK BLOCK: invalid risk settings.");
+      g_requestBusy=false; return;
+   }
+   double lots=0.0, proposedRisk=0.0;
+   if(!CalculateRiskLots(_Symbol,direction,current,sl,lots,proposedRisk))
+   {
+      Print("NEXORA RISK BLOCK: safe lot size unavailable. No order sent.");
+      g_requestBusy=false; return;
+   }
+   double existingRisk=0.0;
+   if(!CalculateExistingAccountRisk(existingRisk))
+   {
+      Print("NEXORA RISK BLOCK: existing account risk is unknown. No order sent.");
+      g_requestBusy=false; return;
+   }
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double accountRiskCap=equity*InpMaxAccountRiskPercent/100.0;
+   if(existingRisk+proposedRisk>accountRiskCap+0.01)
+   {
+      Print("NEXORA RISK BLOCK: total open risk would exceed ",
+            DoubleToString(InpMaxAccountRiskPercent,2),"% equity. Existing=",
+            DoubleToString(existingRisk,2)," proposed=",DoubleToString(proposedRisk,2),
+            " cap=",DoubleToString(accountRiskCap,2)," ",AccountInfoString(ACCOUNT_CURRENCY));
+      g_requestBusy=false; return;
+   }
+   double marginRequired=0.0;
+   ENUM_ORDER_TYPE action=(direction=="BUY"?ORDER_TYPE_BUY:ORDER_TYPE_SELL);
+   if(!OrderCalcMargin(action,_Symbol,lots,current,marginRequired) ||
+      marginRequired>AccountInfoDouble(ACCOUNT_MARGIN_FREE))
+   {
+      Print("NEXORA RISK BLOCK: margin calculation failed or free margin is insufficient.");
+      g_requestBusy=false; return;
+   }
+   Print("NEXORA risk sizing approved: ",_Symbol," ",direction,
+         " lots=",DoubleToString(lots,VolumeDigits(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP))),
+         " risk=",DoubleToString(proposedRisk,2)," ",AccountInfoString(ACCOUNT_CURRENCY),
+         " existing account risk=",DoubleToString(existingRisk,2));
    trade.SetExpertMagicNumber(InpMagicNumber);
-   trade.SetDeviationInPoints(20);
+   trade.SetDeviationInPoints(InpMaxPriceDeviationPoints);
    bool sent=false;
    if(direction=="BUY") sent=trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
    else sent=trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
