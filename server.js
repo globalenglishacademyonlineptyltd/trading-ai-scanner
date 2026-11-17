@@ -39,12 +39,20 @@ let newsBackoffUntil = 0;
 const symbolSearchCache = new Map();
 const LIVE_WATCHLIST = [
   { symbol: 'EUR/USD', name: 'Euro / US Dollar', market: 'forex' },
-  { symbol: 'XAU/USD', name: 'Gold / US Dollar', market: 'gold' },
   { symbol: 'USD/ZAR', name: 'US Dollar / South African Rand', market: 'forex' },
+  { symbol: 'XAU/USD', name: 'Gold / US Dollar', market: 'metals' },
+  { symbol: 'WTI', name: 'WTI Crude Oil', market: 'energy' },
   { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', market: 'crypto' },
-  { symbol: 'AAPL', name: 'Apple', market: 'shares' }
+  { symbol: 'SPY', name: 'S&P 500 ETF', market: 'indices' },
+  { symbol: 'AAPL', name: 'Apple', market: 'shares' },
+  { symbol: 'NVDA', name: 'NVIDIA', market: 'shares' }
 ];
-const SCAN_INTERVAL_MS = 15 * 60 * 1000;
+// A 30-minute cadence limits provider consumption while keeping a regular website refresh.
+const SCAN_INTERVAL_MS = 30 * 60 * 1000;
+const NEWS_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const GLOBAL_NEWS_QUERY = 'global financial markets OR crude oil OR energy OR central banks OR inflation OR interest rates OR stocks OR bonds OR currencies OR commodities OR cryptocurrency';
+let globalNewsIntel = { items: [], source: 'Not loaded', lastUpdated: null, nextRefreshAt: null, stale: true, error: null };
+let newsRefreshPromise = null;
 let liveScan = { instruments: [], lastUpdated: null, nextScanAt: null, scanning: false, error: null };
 let scanPromise = null;
 let lastScanStartedAt = 0;
@@ -129,6 +137,49 @@ async function getSeries(symbol, interval = '1h', outputsize = 100) {
   })).filter(c => c.close !== null && c.high !== null && c.low !== null);
   if (candles.length < 30) throw new Error('At least 30 valid candles are required for analysis.');
   return { symbol: data.meta?.symbol || symbol, interval, exchange: data.meta?.exchange || null, candles, source: 'Twelve Data' };
+}
+function analyseVolume(series) {
+  const candles = series.candles || [];
+  const volumes = candles.map(c => c.volume).filter(v => Number.isFinite(v) && v >= 0);
+  const last = candles.at(-1);
+  if (!last || !Number.isFinite(last.volume) || volumes.length < 5) {
+    return { available: false, volume: null, volumeType: 'not supplied by provider', explanation: 'The provider did not supply enough usable volume observations for this instrument. No volume conclusion is made.' };
+  }
+  const prior = volumes.slice(-21, -1);
+  if (prior.length < 5) return { available: false, volume: last.volume, volumeType: 'provider-reported; classification not supplied', explanation: 'Insufficient history for a reliable relative-volume comparison.' };
+  const average = prior.reduce((a,b)=>a+b,0)/prior.length;
+  const relative = average > 0 ? last.volume/average : null;
+  const direction = last.close > last.open ? 'up' : last.close < last.open ? 'down' : 'flat';
+  const intensity = relative === null ? 'unknown' : relative >= 2 ? 'exceptionally high' : relative >= 1.5 ? 'high' : relative <= 0.5 ? 'low' : 'near average';
+  return {
+    available: true, volume: last.volume, averageVolume20: average,
+    relativeVolume20: relative === null ? null : Number(relative.toFixed(2)),
+    volumeType: 'provider-reported; provider does not identify centralized traded volume versus tick volume here',
+    candleDirection: direction, intensity,
+    interpretation: relative === null ? 'Relative volume cannot be calculated.' :
+      relative >= 1.5 && direction === 'up' ? 'Above-average activity accompanied an up candle; this is participation evidence, not proof of net buying or the cause.' :
+      relative >= 1.5 && direction === 'down' ? 'Above-average activity accompanied a down candle; this is participation evidence, not proof of net selling or the cause.' :
+      relative >= 1.5 ? 'Above-average activity accompanied a flat candle; participation increased without clear candle direction.' :
+      relative <= 0.5 ? 'Activity was below its recent average; the move may have occurred in thinner conditions.' :
+      'Activity was near its recent average.',
+    warning: 'A candle volume value alone cannot identify who traded, whether all market venues are represented, or why price moved.'
+  };
+}
+function matchNewsToInstrument(symbol, items) {
+  const key = symbol.replace('/', ' ').toLowerCase();
+  const aliases = {
+    'xau usd':['gold','bullion','precious metal'], 'xag usd':['silver'],
+    'wti':['crude oil','oil prices','opec','petroleum'], 'btc usd':['bitcoin','crypto'],
+    'eth usd':['ethereum','crypto'], 'usd zar':['south african rand','rand'],
+    'eur usd':['euro','ecb'], 'gbp usd':['sterling','bank of england','british pound'],
+    'usd jpy':['yen','bank of japan'], 'aapl':['apple'], 'nvda':['nvidia'],
+    'spy':['s&p 500','wall street','us stocks']
+  };
+  const terms=[key,...(aliases[key]||[])];
+  return (items||[]).filter(item => terms.some(term => (item.title||'').toLowerCase().includes(term))).slice(0,5).map(item=>({
+    title:item.title, url:item.url, source:item.source, publishedAt:item.publishedAt,
+    relationship:'Topic match only; not proof this headline caused the price or volume move.'
+  }));
 }
 function ema(values, period) {
   const k = 2 / (period + 1);
@@ -221,6 +272,24 @@ async function getNews(query) {
     const error=new Error('News providers are temporarily unavailable. Please try again in a few minutes.');error.status=503;throw error;
   }
 }
+async function refreshGlobalNews(force = false) {
+  if (newsRefreshPromise) return newsRefreshPromise;
+  if (!force && globalNewsIntel.lastUpdated && Date.now() < Date.parse(globalNewsIntel.nextRefreshAt || 0)) return globalNewsIntel;
+  newsRefreshPromise = (async () => {
+    try {
+      const result = await getNews(GLOBAL_NEWS_QUERY);
+      globalNewsIntel = { items: result.items || [], source: result.source || 'Financial news providers',
+        lastUpdated: new Date().toISOString(), nextRefreshAt: new Date(Date.now() + NEWS_REFRESH_INTERVAL_MS).toISOString(),
+        stale: !!result.stale, error: null };
+    } catch (error) {
+      globalNewsIntel = { ...globalNewsIntel, stale: true, error: error.message,
+        nextRefreshAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+    }
+    return globalNewsIntel;
+  })().finally(() => { newsRefreshPromise = null; });
+  return newsRefreshPromise;
+}
+
 async function runLiveScan(force = false) {
   if (scanPromise) return scanPromise;
   if (!force && lastScanStartedAt && Date.now() - lastScanStartedAt < SCAN_INTERVAL_MS && liveScan.lastUpdated) return liveScan;
@@ -241,7 +310,8 @@ async function runLiveScan(force = false) {
           lastPrice: analysis.lastPrice,
           changePercent,
           timestamp: analysis.timestamp, source: 'Twelve Data',
-          plan: analysis.plan, indicators: analysis.indicators
+          plan: analysis.plan, indicators: analysis.indicators,
+          volume: analyseVolume(series), relatedHeadlines: matchNewsToInstrument(item.symbol, globalNewsIntel.items)
         });
       } catch (error) {
         instruments.push({ symbol: item.symbol, name: item.name, market: item.market, status: 'unavailable', error: error.message });
@@ -348,7 +418,7 @@ async function route(req, res, url) {
   });
   if (p === '/api/scan/status') {
     if (!liveScan.lastUpdated) await runLiveScan(false);
-    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:15});
+    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:30});
   }
   if (p === '/api/market/search') {
     const q=url.searchParams.get('q')||'';
@@ -363,14 +433,28 @@ async function route(req, res, url) {
     const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
     return send(res,200,await getSeries(symbol,url.searchParams.get('interval')||'1h',Math.min(500,Math.max(30,Number(url.searchParams.get('outputsize')||100)))));
   }
+  if (p === '/api/market/volume') {
+    const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
+    const series=await getSeries(symbol,url.searchParams.get('interval')||'1h',Math.min(500,Math.max(30,Number(url.searchParams.get('outputsize')||100))));
+    return send(res,200,{symbol:series.symbol,interval:series.interval,timestamp:series.candles.at(-1)?.time||null,source:series.source,...analyseVolume(series)});
+  }
+  if (p === '/api/news/status') {
+    if (!globalNewsIntel.lastUpdated) await refreshGlobalNews(true);
+    return send(res,200,globalNewsIntel);
+  }
   if (p === '/api/news') {
-    const query=url.searchParams.get('q')||'markets OR finance OR central bank OR inflation';
+    const query=url.searchParams.get('q');
+    if (!query) {
+      if (!globalNewsIntel.lastUpdated || Date.now() >= Date.parse(globalNewsIntel.nextRefreshAt || 0)) await refreshGlobalNews(true);
+      return send(res,200,{items:globalNewsIntel.items,source:globalNewsIntel.source,retrievedAt:globalNewsIntel.lastUpdated,nextRefreshAt:globalNewsIntel.nextRefreshAt,stale:globalNewsIntel.stale,error:globalNewsIntel.error});
+    }
     return send(res,200,{...await getNews(query),retrievedAt:new Date().toISOString()});
   }
   if (p === '/api/signals') {
     const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
     const series=await getSeries(symbol,url.searchParams.get('interval')||'1h',100);
-    return send(res,200,analyseSeries(series));
+    const analysis=analyseSeries(series);
+    return send(res,200,{...analysis,volume:analyseVolume(series),relatedHeadlines:matchNewsToInstrument(symbol,globalNewsIntel.items)});
   }
   return send(res,404,{error:'API route not found.'});
 }
@@ -403,4 +487,4 @@ const server = http.createServer(async (req,res)=>{
     res.end(data);
   } catch { res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});res.end('Not found'); }
 });
-server.listen(PORT,'0.0.0.0',()=>{ console.log(`NEXORA AI listening on ${PORT}`); runLiveScan(true); setInterval(()=>runLiveScan(true),SCAN_INTERVAL_MS).unref(); });
+server.listen(PORT,'0.0.0.0',()=>{ console.log(`NEXORA AI listening on ${PORT}`); runLiveScan(true); refreshGlobalNews(true); setInterval(()=>runLiveScan(true),SCAN_INTERVAL_MS).unref(); setInterval(()=>refreshGlobalNews(true),NEWS_REFRESH_INTERVAL_MS).unref(); });

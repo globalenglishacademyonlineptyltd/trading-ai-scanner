@@ -55,16 +55,20 @@
       <div class="planner-actions"><button class="primary" id="analyzeLive">Analyse live market</button><button class="secondary" id="refreshIntelligence">Refresh connection status</button></div>
       <div id="liveAnalysis" class="plan-results"><div class="result-placeholder">Enter a supported provider symbol and request an analysis.</div></div>
       <div class="section-head"><div><span class="label">GLOBAL FINANCIAL NEWS</span><h2>News intelligence feed</h2></div><span class="muted" id="newsUpdated">Not loaded</span></div>
-      <div class="chat-input"><input id="newsQuery" value="markets OR finance OR central bank OR inflation" /><button id="loadNews">Load news</button></div>
+      <div class="chat-input"><input id="newsQuery" value="" placeholder="Optional topic filter; leave blank for global automatic feed" /><button id="loadNews">Load news</button></div>
       <div id="newsFeed" class="opportunity-list"><p class="muted">News will appear here when the feed is available.</p></div>
-      <p class="notice">News uses GDELT with a Google News RSS fallback if the primary feed is rate-limited. Headlines are context, not verified trading signals.</p>
+      <p class="notice">Global news refreshes automatically every two hours using GDELT with Google News RSS fallback. Leave the topic filter blank to view the global feed; use it to request a focused topic. Headlines are evidence to investigate, not proof of causation or verified trading signals.</p>
     </section>
 
     <section class="card">
       <div class="section-head"><div><span class="label">AUTOMATIC PROVIDER SCAN</span><h2>Live market opportunities</h2></div><span class="muted" id="scanTime">Waiting for provider data</span></div>
-      <div class="live-scan-toolbar"><span id="scanConnection">Waiting for first scan…</span><span>Automatic refresh: every 15 minutes</span><button class="secondary" id="refreshLiveScan">Refresh status</button></div>
+      <div class="live-scan-toolbar"><span id="scanConnection">Waiting for first scan…</span><span>Automatic refresh: every 30 minutes</span><button class="secondary" id="refreshLiveScan">Refresh status</button></div>
       <div class="opportunity-list" id="opportunities"><p class="muted">Waiting for live market data from Twelve Data. No demonstration prices are shown here.</p></div>
       <p class="notice">Only provider-returned instruments are shown. A failed or stale instrument is marked unavailable; NEXORA will not substitute sample values.</p>
+    </section>
+      <div class="section-head"><div><span class="label">MARKET PARTICIPATION & CATALYST CONTEXT</span><h2>Volume and market drivers</h2></div><span class="muted">Evidence-led · No assumed causes</span></div>
+      <p class="section-intro">NEXORA compares the latest provider-reported candle volume with the previous 20 observations, checks the candle direction and looks for topic-matched headlines. A headline match is context to investigate, not proof that it caused the move. Volume may be unavailable or may not represent centralized traded volume.</p>
+      <div id="marketCatalysts" class="opportunity-list"><p class="muted">Volume and catalyst context will appear after the next successful scan.</p></div>
     </section>
 
     <section class="card automation-card">
