@@ -69,15 +69,15 @@ bool BuildCandlePayload(string &payload){
  MqlRates rates[];ArraySetAsSeries(rates,false);
  int copied=CopyRates(_Symbol,_Period,1,100,rates);
  if(copied<60)return false;
- payload="{\\"chartSymbol\\":\\""+_Symbol+"\\",\\"interval\\":\\""+EnumToString(_Period)+"\\",\\"candles\\":[";
+ payload="{\"chartSymbol\":\""+_Symbol+"\",\"interval\":\""+EnumToString(_Period)+"\",\"candles\":[";
  for(int i=0;i<copied;i++){
   if(i>0)payload+=",";
-  payload+="{\\"time\\":\\""+TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES)+"\\",";
-  payload+="\\"open\\":"+DoubleToString(rates[i].open,_Digits)+",";
-  payload+="\\"high\\":"+DoubleToString(rates[i].high,_Digits)+",";
-  payload+="\\"low\\":"+DoubleToString(rates[i].low,_Digits)+",";
-  payload+="\\"close\\":"+DoubleToString(rates[i].close,_Digits)+",";
-  payload+="\\"volume\\":"+IntegerToString((long)rates[i].tick_volume)+"}";
+  payload+="{\"time\":\""+TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES)+"\",";
+  payload+="\"open\":"+DoubleToString(rates[i].open,_Digits)+",";
+  payload+="\"high\":"+DoubleToString(rates[i].high,_Digits)+",";
+  payload+="\"low\":"+DoubleToString(rates[i].low,_Digits)+",";
+  payload+="\"close\":"+DoubleToString(rates[i].close,_Digits)+",";
+  payload+="\"volume\":"+IntegerToString((long)rates[i].tick_volume)+"}";
  }
  payload+="]}";return true;
 }
@@ -91,14 +91,14 @@ void SendCandleContext(){
 }
 
 void Scan(){
- if(busy)return;busy=true;SendCandleContext();string payload,json;if(!GetTickPayload(payload)){Comment("NEXORA | LIVE TICK ENGINE\n",statusText,"\nChart timeframe is ignored.");busy=false;return;}
- if(!Request("POST","/api/mt5/signal-ticks",payload,json)){Comment("NEXORA | UPDATE FAILED\n",statusText);busy=false;return;}
+ if(busy)return;busy=true;SendCandleContext();string payload,json;if(!GetTickPayload(payload)){Comment("NEXORA MT5 ADVANCED\n",statusText,"\nCandle context: ",candleContext);busy=false;return;}
+ if(!Request("POST","/api/mt5/signal-ticks",payload,json)){Comment("NEXORA MT5 ADVANCED | UPDATE FAILED\n",statusText);busy=false;return;}
  string symbol=J(json,"symbol"),dir=J(json,"direction"),stamp=J(json,"timestamp");StringToUpper(dir);
  if(symbol!=_Symbol){Print("NEXORA SAFETY BLOCK: returned symbol mismatch ",symbol);busy=false;return;}
  double score=JD(json,"score"),entry=JD(json,"entry"),sl=JD(json,"stopLoss"),tp=JD(json,"takeProfit");
- if(dir!="BUY"&&dir!="SELL"){Comment("NEXORA | LIVE TICK ENGINE\n",_Symbol," | WAIT | Score ",score,"\nUpdated ",TimeToString(TimeCurrent(),TIME_SECONDS),"\nAuto ",InpEnableAutoExecution?"ON":"OFF");busy=false;return;}
+ if(dir!="BUY"&&dir!="SELL"){Comment("NEXORA MT5 ADVANCED\n",_Symbol," | WAIT | Tick score ",score,"\nCandle context: ",candleContext,"\nUpdated ",TimeToString(TimeCurrent(),TIME_SECONDS),"\nAuto ",InpEnableAutoExecution?"ON":"OFF");busy=false;return;}
  if(entry<=0||sl<=0||tp<=0||(dir=="BUY"&&(sl>=entry||tp<=entry))||(dir=="SELL"&&(sl<=entry||tp>=entry))){Print("NEXORA rejected invalid tick trade plan: ",json);busy=false;return;}
- Comment("NEXORA | LIVE TICK ENGINE\n",_Symbol," | ",dir," | Score ",score,"/100\nEntry ",entry," | SL ",sl," | TP ",tp,"\nAuto ",InpEnableAutoExecution?"ON":"OFF"," | Risk ",InpRiskPercent,"% | Cooldown ",InpCooldownSeconds," sec\nNo chart timeframe used.\nUpdated ",TimeToString(TimeCurrent(),TIME_SECONDS));
+ Comment("NEXORA MT5 ADVANCED\n",_Symbol," | ",dir," | Tick score ",score,"/100\nEntry ",entry," | SL ",sl," | TP ",tp,"\nAuto ",InpEnableAutoExecution?"ON":"OFF"," | Risk ",InpRiskPercent,"% | Cooldown ",InpCooldownSeconds," sec\nCandle context: ",candleContext,"\nUpdated ",TimeToString(TimeCurrent(),TIME_SECONDS));
  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA tick signal ",_Symbol," ",dir," score ",score," entry ",entry," SL ",sl," TP ",tp);}
  SaveHistory(dir,score,entry,sl,tp,stamp);
  if(!InpEnableAutoExecution){busy=false;return;}
