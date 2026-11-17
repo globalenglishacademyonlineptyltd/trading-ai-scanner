@@ -21,10 +21,12 @@ input int    InpMaxOpenPositions = 3; // Account-wide NEXORA magic-number positi
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
-input int    InpPollSeconds = 120; // Refresh this chart's independent timeframe signal every two minutes
+input int    InpPollSeconds = 120; // Scan all Market Watch instruments every two minutes
 input long   InpMagicNumber = 24111401;
+input ENUM_TIMEFRAMES InpAnalysisTimeframe = PERIOD_CURRENT; // PERIOD_CURRENT uses the chart timeframe
 
 string g_lastSignalKey = "";
+string g_processedKeys[];
 datetime g_lastHeartbeat = 0;
 string g_lastStatus = "Starting";
 bool g_requestBusy = false;
@@ -54,9 +56,21 @@ bool IsDerivSyntheticSymbol(string symbol)
    for(int i=0;i<ArraySize(markers);i++) if(StringFind(upper,markers[i])>=0) return true;
    return false;
 }
+ENUM_TIMEFRAMES AnalysisTimeframe()
+{
+   return (InpAnalysisTimeframe==PERIOD_CURRENT?_Period:InpAnalysisTimeframe);
+}
 string CurrentChartInterval()
 {
-   return EnumToString(_Period);
+   return EnumToString(AnalysisTimeframe());
+}
+bool SignalAlreadyProcessed(int slot,string key)
+{
+   if(slot<0) return false;
+   if(ArraySize(g_processedKeys)<=slot) ArrayResize(g_processedKeys,slot+1);
+   if(g_processedKeys[slot]==key) return true;
+   g_processedKeys[slot]=key;
+   return false;
 }
 // Detect symbol/timeframe changes on this chart and discard the previous chart's signal state.
 bool RefreshChartContext()
@@ -90,28 +104,28 @@ bool HttpPostJson(string url,string payload,string &body)
    body=CharArrayToString(result,0,WHOLE_ARRAY,CP_UTF8);
    return true;
 }
-bool BuildLocalCandlePayload(string &payload)
+bool BuildLocalCandlePayload(string symbol,ENUM_TIMEFRAMES timeframe,string &payload)
 {
    MqlRates rates[];
    ArraySetAsSeries(rates,false);
-   int copied=CopyRates(_Symbol,_Period,1,100,rates); // closed candles only; excludes the forming bar
+   int copied=CopyRates(symbol,timeframe,1,100,rates); // closed candles only; excludes the forming bar
    if(copied<60)
    {
-      g_lastStatus="Waiting for at least 60 closed chart candles for "+_Symbol;
+      g_lastStatus="Waiting for at least 60 closed candles for "+symbol;
       Print("NEXORA: ",g_lastStatus,". CopyRates=",copied);
       return false;
    }
-   payload="{\"chartSymbol\":\""+_Symbol+"\",";
-   payload+="\"interval\":\""+CurrentChartInterval()+"\",";
+   payload="{\"chartSymbol\":\""+symbol+"\",";
+   payload+="\"interval\":\""+EnumToString(timeframe)+"\",";
    payload+="\"candles\":[";
    for(int i=0;i<copied;i++)
    {
       if(i>0) payload+=",";
       payload+="{\"time\":\""+TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES)+"\",";
-      payload+="\"open\":"+DoubleToString(rates[i].open,_Digits)+",";
-      payload+="\"high\":"+DoubleToString(rates[i].high,_Digits)+",";
-      payload+="\"low\":"+DoubleToString(rates[i].low,_Digits)+",";
-      payload+="\"close\":"+DoubleToString(rates[i].close,_Digits)+",";
+      payload+="\"open\":"+DoubleToString(rates[i].open,(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS))+",";
+      payload+="\"high\":"+DoubleToString(rates[i].high,(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS))+",";
+      payload+="\"low\":"+DoubleToString(rates[i].low,(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS))+",";
+      payload+="\"close\":"+DoubleToString(rates[i].close,(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS))+",";
       payload+="\"volume\":"+IntegerToString((long)rates[i].tick_volume)+"}";
    }
    payload+="]}";
@@ -368,22 +382,22 @@ void ManageTrailingStop()
          trade.PositionModify(_Symbol,candidate,tp);
    }
 }
-void ProcessSignal()
+void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
 {
    if(g_requestBusy) return;
    g_requestBusy=true;
    // ALL instruments use the connected MT5 terminal as the only price-data source.
    // No Twelve Data/provider-symbol lookup is used by this Expert Advisor.
-   string providerSymbol=_Symbol;
+   string providerSymbol=symbol;
    string payload;
-   if(!BuildLocalCandlePayload(payload)) { g_requestBusy=false; return; }
+   if(!BuildLocalCandlePayload(symbol,timeframe,payload)) { g_requestBusy=false; return; }
    string json;
    string localUrl=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-local";
    if(!HttpPostJson(localUrl,payload,json)) { g_requestBusy=false; return; }
    string responseSymbol=JsonValue(json,"symbol");
    if(responseSymbol=="" || CanonicalSymbol(responseSymbol)!=CanonicalSymbol(providerSymbol))
    {
-      g_lastStatus="Symbol mismatch blocked: chart "+_Symbol+", requested "+providerSymbol+", received "+responseSymbol;
+      g_lastStatus="Symbol mismatch blocked: chart "+symbol+", requested "+providerSymbol+", received "+responseSymbol;
       Print("NEXORA SAFETY BLOCK: ",g_lastStatus);
       Comment("NEXORA MT5\n",g_lastStatus,"\nNo alert or order generated.");
       g_requestBusy=false;
@@ -395,11 +409,10 @@ void ProcessSignal()
    double entry=JsonDouble(json,"entry");
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
-   string signalKey=providerSymbol+"|"+CurrentChartInterval()+"|"+direction+"|"+signalTime;
-   g_lastStatus="Signal "+direction+" score "+DoubleToString(score,0);
-   Comment("NEXORA MT5\n",g_lastStatus,"\nMode: ",InpEnableAutoExecution?"AUTOMATIC":"MANUAL (signals only)","\nChart symbol: ",_Symbol,"\nData source: MT5 terminal chart","\nLast signal: ",signalTime);
+   string signalKey=providerSymbol+"|"+EnumToString(timeframe)+"|"+direction+"|"+signalTime;
+   g_lastStatus="Scanned "+providerSymbol+" "+direction+" score "+DoubleToString(score,0);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
-   if(signalKey==g_lastSignalKey) { g_requestBusy=false; return; }
+   if(SignalAlreadyProcessed(slot,signalKey)) { g_requestBusy=false; return; }
    g_lastSignalKey=signalKey;
    Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
    if(!InpEnableAutoExecution)
@@ -418,15 +431,15 @@ void ProcessSignal()
       Print("NEXORA: account-wide maximum of ",InpMaxOpenPositions," NEXORA positions reached.");
       g_requestBusy=false; return;
    }
-   if(IsOurPosition(_Symbol))
+   if(IsOurPosition(symbol))
    {
-      Print("NEXORA: an automatic position already exists on ",_Symbol,". Duplicate entry blocked.");
+      Print("NEXORA: an automatic position already exists on ",symbol,". Duplicate entry blocked.");
       g_requestBusy=false; return;
    }
-   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double ask=SymbolInfoDouble(symbol,SYMBOL_ASK), bid=SymbolInfoDouble(symbol,SYMBOL_BID);
    double current=(direction=="BUY"?ask:bid);
-   double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
-   int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   double point=SymbolInfoDouble(symbol,SYMBOL_POINT);
+   int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
    if(entry<=0 || sl<=0 || tp<=0 || point<=0)
    {
       Print("NEXORA: signal has no valid entry/SL/TP. No order sent.");
@@ -447,7 +460,7 @@ void ProcessSignal()
       Print("NEXORA: SELL stop/target invalid for current price.");
       g_requestBusy=false; return;
    }
-   long stopLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   long stopLevel=SymbolInfoInteger(symbol,SYMBOL_TRADE_STOPS_LEVEL);
    if(MathAbs(current-sl)<stopLevel*point || MathAbs(tp-current)<stopLevel*point)
    {
       Print("NEXORA: broker minimum stop distance not satisfied.");
@@ -462,7 +475,7 @@ void ProcessSignal()
       g_requestBusy=false; return;
    }
    double lots=0.0, proposedRisk=0.0;
-   if(!CalculateRiskLots(_Symbol,direction,current,sl,lots,proposedRisk))
+   if(!CalculateRiskLots(symbol,direction,current,sl,lots,proposedRisk))
    {
       Print("NEXORA RISK BLOCK: safe lot size unavailable. No order sent.");
       g_requestBusy=false; return;
@@ -485,21 +498,21 @@ void ProcessSignal()
    }
    double marginRequired=0.0;
    ENUM_ORDER_TYPE action=(direction=="BUY"?ORDER_TYPE_BUY:ORDER_TYPE_SELL);
-   if(!OrderCalcMargin(action,_Symbol,lots,current,marginRequired) ||
+   if(!OrderCalcMargin(action,symbol,lots,current,marginRequired) ||
       marginRequired>AccountInfoDouble(ACCOUNT_MARGIN_FREE))
    {
       Print("NEXORA RISK BLOCK: margin calculation failed or free margin is insufficient.");
       g_requestBusy=false; return;
    }
-   Print("NEXORA risk sizing approved: ",_Symbol," ",direction,
-         " lots=",DoubleToString(lots,VolumeDigits(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP))),
+   Print("NEXORA risk sizing approved: ",symbol," ",direction,
+         " lots=",DoubleToString(lots,VolumeDigits(SymbolInfoDouble(symbol,SYMBOL_VOLUME_STEP))),
          " risk=",DoubleToString(proposedRisk,2)," ",AccountInfoString(ACCOUNT_CURRENCY),
          " existing account risk=",DoubleToString(existingRisk,2));
    trade.SetExpertMagicNumber(InpMagicNumber);
    trade.SetDeviationInPoints(InpMaxPriceDeviationPoints);
    bool sent=false;
-   if(direction=="BUY") sent=trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
-   else sent=trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
+   if(direction=="BUY") sent=trade.Buy(lots,symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
+   else sent=trade.Sell(lots,symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA "+signalTime);
    if(!sent) Print("NEXORA order rejected: ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
    else Print("NEXORA demo order submitted. Ticket/deal: ",trade.ResultDeal());
    g_requestBusy=false;
@@ -516,24 +529,39 @@ int OnInit()
    g_lastChartPeriod=_Period;
    EventSetTimer(MathMax(15,InpPollSeconds));
    SendHeartbeat();
-   ProcessSignal();
+   ScanMarketWatch();
    return INIT_SUCCEEDED;
+}
+void ScanMarketWatch()
+{
+   if(g_requestBusy) return;
+   ENUM_TIMEFRAMES tf=AnalysisTimeframe();
+   int total=SymbolsTotal(true);
+   if(total<=0)
+   {
+      Print("NEXORA: Market Watch is empty. Add instruments in MT5 Market Watch.");
+      return;
+   }
+   Print("NEXORA: scanning ",total," Market Watch instruments on ",EnumToString(tf));
+   for(int i=0;i<total;i++)
+   {
+      string symbol=SymbolName(i,true);
+      if(symbol=="") continue;
+      if(!SymbolSelect(symbol,true)) continue;
+      ProcessSignal(symbol,tf,i);
+   }
 }
 void OnTimer()
 {
-   if(RefreshChartContext())
-   {
-      ProcessSignal();
-      return;
-   }
+   if(RefreshChartContext()) Print("NEXORA chart changed; Market Watch scan will use selected timeframe.");
    if(TimeCurrent()-g_lastHeartbeat>=30) SendHeartbeat();
-   ProcessSignal();
+   ScanMarketWatch();
    ManageTrailingStop();
 }
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
 {
    if(id==CHARTEVENT_CHART_CHANGE && RefreshChartContext())
-      ProcessSignal();
+      ScanMarketWatch();
 }
 void OnDeinit(const int reason)
 {
