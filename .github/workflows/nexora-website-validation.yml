@@ -55,6 +55,6 @@ jobs:
           assert.match(server, /function assertAutomaticExecutionAllowed\(\)\s*\{\s*throw new Error/);
           assert.equal((app.match(/let newsAutoRefreshTimer/g) || []).length, 1);
           assert.equal((app.match(/const NEWS_AUTO_REFRESH_MS/g) || []).length, 1);
-          assert.match(html, /id="marketCatalysts"/);\nassert.match(html, /Signal refresh: every 2 minutes/);
+          assert.match(html, /id="marketCatalysts"/);\n          assert.match(html, /Signal refresh: every 2 minutes/);
           console.log('NEXORA website safety and intelligence invariants passed.');
           NODE
