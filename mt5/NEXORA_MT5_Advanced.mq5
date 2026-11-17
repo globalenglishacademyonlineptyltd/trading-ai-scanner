@@ -21,6 +21,9 @@ input int InpTrailingStepPoints=50;
 input long InpMagicNumber=24111401;
 string TOKEN_FILE="NEXORA_MT5_Connector.token", HISTORY_FILE="NEXORA_Signal_History.csv";
 string candleContext="Not checked";
+string candleDirection="WAIT";
+double candleScore=0;
+bool candleReady=false;
 string token="",lastSignal="",statusText="Starting";
 ulong nextScan=0,lastHeartbeat=0;
 bool busy=false;
@@ -82,37 +85,86 @@ bool BuildCandlePayload(string &payload){
  payload+="]}";return true;
 }
 void SendCandleContext(){
+ candleReady=false;candleDirection="WAIT";candleScore=0;
  string payload,json;
- if(!BuildCandlePayload(payload)){candleContext="Waiting for 60 closed candles";return;}
- if(!Request("POST","/api/mt5/signal-local",payload,json)){candleContext="Candle API unavailable";return;}
- string d=J(json,"direction");double s=JD(json,"score");
- candleContext=(d==""?"WAIT":d)+" / "+DoubleToString(s,0);
- Print("NEXORA candle context ",_Symbol," ",candleContext," (tick engine remains primary)");
+ if(!BuildCandlePayload(payload)){candleContext="WAIT / insufficient candle history";return;}
+ if(!Request("POST","/api/mt5/signal-local",payload,json)){candleContext="WAIT / candle API unavailable";return;}
+ string d=J(json,"direction");StringToUpper(d);double s=JD(json,"score");
+ if((d=="BUY"||d=="SELL")&&s>=0&&s<=100){candleDirection=d;candleScore=s;candleReady=true;}
+ else {candleDirection="WAIT";candleScore=s;}
+ candleContext=candleDirection+" / "+DoubleToString(candleScore,0);
+ Print("NEXORA candle analysis ",_Symbol," ",candleContext);
 }
 
 void Scan(){
- if(busy)return;busy=true;SendCandleContext();string payload,json;if(!GetTickPayload(payload)){Comment("NEXORA MT5 ADVANCED\n",statusText,"\nCandle context: ",candleContext);busy=false;return;}
- if(!Request("POST","/api/mt5/signal-ticks",payload,json)){Comment("NEXORA MT5 ADVANCED | UPDATE FAILED\n",statusText);busy=false;return;}
- string symbol=J(json,"symbol"),dir=J(json,"direction"),stamp=J(json,"timestamp");StringToUpper(dir);
+ if(busy)return;
+ busy=true;
+ SendCandleContext();
+ string payload,json;
+ if(!GetTickPayload(payload)){
+  Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\n",statusText,"\nCandle: ",candleContext);
+  busy=false;return;
+ }
+ if(!Request("POST","/api/mt5/signal-ticks",payload,json)){
+  Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\nTick API unavailable\n",statusText);
+  busy=false;return;
+ }
+ string symbol=J(json,"symbol"),tickDir=J(json,"direction"),stamp=J(json,"timestamp");
+ StringToUpper(tickDir);
  if(symbol!=_Symbol){Print("NEXORA SAFETY BLOCK: returned symbol mismatch ",symbol);busy=false;return;}
- double score=JD(json,"score"),entry=JD(json,"entry"),sl=JD(json,"stopLoss"),tp=JD(json,"takeProfit");
- if(dir!="BUY"&&dir!="SELL"){Comment("NEXORA MT5 ADVANCED\n",_Symbol," | WAIT | Tick score ",score,"\nCandle context: ",candleContext,"\nUpdated ",TimeToString(TimeCurrent(),TIME_SECONDS),"\nAuto ",InpEnableAutoExecution?"ON":"OFF");busy=false;return;}
- if(entry<=0||sl<=0||tp<=0||(dir=="BUY"&&(sl>=entry||tp<=entry))||(dir=="SELL"&&(sl<=entry||tp>=entry))){Print("NEXORA rejected invalid tick trade plan: ",json);busy=false;return;}
- Comment("NEXORA MT5 ADVANCED\n",_Symbol," | ",dir," | Tick score ",score,"/100\nEntry ",entry," | SL ",sl," | TP ",tp,"\nAuto ",InpEnableAutoExecution?"ON":"OFF"," | Risk ",InpRiskPercent,"% | Cooldown ",InpCooldownSeconds," sec\nCandle context: ",candleContext,"\nUpdated ",TimeToString(TimeCurrent(),TIME_SECONDS));
- if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA tick signal ",_Symbol," ",dir," score ",score," entry ",entry," SL ",sl," TP ",tp);}
- SaveHistory(dir,score,entry,sl,tp,stamp);
+ double tickScore=JD(json,"score"),entry=JD(json,"entry"),sl=JD(json,"stopLoss"),tp=JD(json,"takeProfit");
+ if(tickDir!="BUY"&&tickDir!="SELL"){
+  Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\nTick analysis: WAIT\nCandle analysis: ",candleContext,"\nAuto ",InpEnableAutoExecution?"ON":"OFF");
+  busy=false;return;
+ }
+ // A trade direction is publishable only when the closed-candle analysis independently agrees.
+ if(!candleReady||candleDirection!=tickDir||candleScore<55.0){
+  string why=!candleReady?"candle confirmation unavailable":(candleDirection!=tickDir?"tick/candle disagreement":"candle confidence below 55");
+  Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\nTick: ",tickDir," ",DoubleToString(tickScore,1),
+          " | Candle: ",candleContext,"\nReason: ",why,"\nAuto ",InpEnableAutoExecution?"ON":"OFF");
+  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL WAIT ",_Symbol," | tick=",tickDir," ",tickScore," | candle=",candleContext," | ",why);}
+  busy=false;return;
+ }
+ double tickStrength=tickDir=="BUY"?tickScore:100.0-tickScore;
+ double finalScore=(tickStrength+candleScore)/2.0;
+ if(finalScore<55.0){
+  Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\nCombined score ",DoubleToString(finalScore,1),
+          " below 55\nTick: ",tickDir," | Candle: ",candleContext);
+  busy=false;return;
+ }
+ string dir=tickDir;
+ if(entry<=0||sl<=0||tp<=0||(dir=="BUY"&&(sl>=entry||tp<=entry))||(dir=="SELL"&&(sl<=entry||tp>=entry))){
+  Print("NEXORA rejected invalid unified trade plan: ",json);busy=false;return;
+ }
+ Comment("NEXORA MT5 ADVANCED\nFINAL: ",dir," | Combined score ",DoubleToString(finalScore,1),"/100",
+         "\nTick strength ",DoubleToString(tickStrength,1)," | Candle ",candleContext,
+         "\nEntry ",entry," | SL ",sl," | TP ",tp,
+         "\nAuto ",InpEnableAutoExecution?"ON":"OFF"," | Risk ",InpRiskPercent,"%");
+ if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL ",_Symbol," ",dir," combined score ",DoubleToString(finalScore,1),
+     " | tick strength ",DoubleToString(tickStrength,1)," | candle ",candleContext," entry ",entry," SL ",sl," TP ",tp);}
+ SaveHistory(dir,finalScore,entry,sl,tp,stamp);
  if(!InpEnableAutoExecution){busy=false;return;}
- double strength=dir=="SELL"?100-score:score;if(strength<InpMinimumAutoScore){Print("NEXORA auto blocked: strength below threshold");busy=false;return;}
- string cd="NEXORA_COOLDOWN_"+_Symbol;if(GlobalVariableCheck(cd)&&TimeCurrent()<(datetime)GlobalVariableGet(cd)){busy=false;return;}
+ if(finalScore<InpMinimumAutoScore){Print("NEXORA auto blocked: unified score below threshold");busy=false;return;}
+ string cd="NEXORA_COOLDOWN_"+_Symbol;
+ if(GlobalVariableCheck(cd)&&TimeCurrent()<(datetime)GlobalVariableGet(cd)){busy=false;return;}
  for(int i=PositionsTotal()-1;i>=0;i--){ulong t=PositionGetTicket(i);if(t>0&&PositionGetString(POSITION_SYMBOL)==_Symbol&&PositionGetInteger(POSITION_MAGIC)==InpMagicNumber){busy=false;return;}}
- double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK),bid=SymbolInfoDouble(_Symbol,SYMBOL_BID),point=SymbolInfoDouble(_Symbol,SYMBOL_POINT),price=dir=="BUY"?ask:bid;int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
- double riskDist=MathAbs(entry-sl),allowed=MathMax(InpMaxPriceDeviationPoints*point,riskDist*.25);if(point<=0||MathAbs(price-entry)>allowed||(dir=="BUY"&&!(sl<price&&tp>price))||(dir=="SELL"&&!(sl>price&&tp<price))){Print("NEXORA auto blocked: live price invalidated plan");busy=false;return;}
- double risk=dir=="BUY"?price-sl:sl-price,reward=dir=="BUY"?tp-price:price-tp;if(risk<=0||reward/risk<InpMinimumExecutionRR){Print("NEXORA auto blocked: reward/risk too low");busy=false;return;}
- long stops=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);if(MathAbs(price-sl)<stops*point||MathAbs(tp-price)<stops*point){busy=false;return;}
- ENUM_ORDER_TYPE type=dir=="BUY"?ORDER_TYPE_BUY:ORDER_TYPE_SELL;double lots=LotsForRisk(type,price,sl);if(lots<=0){Print("NEXORA safety block: volume cannot meet 1% risk budget");busy=false;return;}
- trade.SetExpertMagicNumber(InpMagicNumber);trade.SetDeviationInPoints((int)MathMax(InpMaxPriceDeviationPoints,MathCeil(allowed/point)));
- bool sent=dir=="BUY"?trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA tick"):trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA tick");
- if(!sent)Print("NEXORA order rejected ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());else Print("NEXORA order sent ",_Symbol," ",dir," volume ",lots);
+ double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK),bid=SymbolInfoDouble(_Symbol,SYMBOL_BID),point=SymbolInfoDouble(_Symbol,SYMBOL_POINT),price=dir=="BUY"?ask:bid;
+ int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+ double riskDist=MathAbs(entry-sl),allowed=MathMax(InpMaxPriceDeviationPoints*point,riskDist*.25);
+ if(point<=0||MathAbs(price-entry)>allowed||(dir=="BUY"&&!(sl<price&&tp>price))||(dir=="SELL"&&!(sl>price&&tp<price))){Print("NEXORA auto blocked: live price invalidated plan");busy=false;return;}
+ double risk=dir=="BUY"?price-sl:sl-price,reward=dir=="BUY"?tp-price:price-tp;
+ if(risk<=0||reward/risk<InpMinimumExecutionRR){Print("NEXORA auto blocked: reward/risk too low");busy=false;return;}
+ long stops=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+ if(MathAbs(price-sl)<stops*point||MathAbs(tp-price)<stops*point){busy=false;return;}
+ ENUM_ORDER_TYPE type=dir=="BUY"?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+ double lots=LotsForRisk(type,price,sl);
+ if(lots<=0){Print("NEXORA safety block: volume cannot meet risk budget");busy=false;return;}
+ trade.SetExpertMagicNumber(InpMagicNumber);
+ trade.SetDeviationInPoints((int)MathMax(InpMaxPriceDeviationPoints,MathCeil(allowed/point)));
+ bool sent=dir=="BUY"?trade.Buy(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA unified"):
+                         trade.Sell(lots,_Symbol,0,NormalizeDouble(sl,digits),NormalizeDouble(tp,digits),"NEXORA unified");
+ if(!sent)Print("NEXORA order rejected ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+ else Print("NEXORA order sent ",_Symbol," ",dir," volume ",lots);
  busy=false;
 }
 void Trail(){
