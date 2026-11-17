@@ -62,6 +62,23 @@ jobs:
             process.exit(1);
           }
           console.log('Authenticated MT5 live tick-analysis endpoint passed.');
+          const published = await fetch('http://127.0.0.1:8787/api/mt5/signal-publish', {
+            method: 'POST',
+            headers: {'content-type': 'application/json', authorization: 'Bearer ' + token},
+            body: JSON.stringify({symbol:'EURUSD',interval:'PERIOD_H1',direction:'BUY',score:82,tickScore:76,timestamp:'2026-11-17 12:00',entry:1.1,stopLoss:1.09,takeProfit:1.12})
+          });
+          const publishResult = await published.json();
+          if (!published.ok || publishResult.ok !== true || publishResult.signal?.symbol !== 'EURUSD') {
+            console.error('MT5 signal publishing test failed:', published.status, publishResult);
+            process.exit(1);
+          }
+          const feedResponse = await fetch('http://127.0.0.1:8787/api/mt5/signals');
+          const feed = await feedResponse.json();
+          if (!feedResponse.ok || !feed.signals?.some(s => s.symbol === 'EURUSD' && s.interval === 'PERIOD_H1' && s.direction === 'BUY')) {
+            console.error('Website MT5 signal feed test failed:', feedResponse.status, feed);
+            process.exit(1);
+          }
+          console.log('Authenticated MT5 signal publishing and website feed passed.');
           NODE
       - name: Verify safety and intelligence invariants
         run: |
@@ -106,6 +123,11 @@ jobs:
           assert.match(ea, /InpScanH1\s*=\s*false/);
           assert.match(ea, /InpScanH4\s*=\s*false/);
           assert.match(ea, /SignalAlreadyProcessed\(signalKey\)/);
+          assert.match(ea, /signal-publish/);
+          assert.match(server, /\/api\/mt5\/signal-publish/);
+          assert.match(server, /\/api\/mt5\/signals/);
+          assert.match(app, /startMt5SignalRefresh\(\)/);
+          assert.match(html, /id="mt5SignalFeed"/);
           assert.match(ea, /ManageTrailingStop\(\)/);
           assert.match(ea, /trade\.PositionModify\(ticket/);
           assert.match(app, /setInterval\(refreshLiveScan,120000\)/);
