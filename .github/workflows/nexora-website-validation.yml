@@ -65,5 +65,10 @@ jobs:
           assert.match(ea, /OrderCalcProfit\(/);
           assert.match(ea, /CalculateExistingAccountRisk\(/);
           assert.doesNotMatch(ea, /InpFixedLots/);
+          assert.match(ea, /SymbolsTotal\(true\)/);
+          assert.match(ea, /InpAnalysisTimeframe\s*=\s*PERIOD_CURRENT/);
+          assert.match(ea, /ManageTrailingStop\(\)/);
+          assert.match(ea, /trade\.PositionModify\(ticket/);
+          assert.match(app, /setInterval\(refreshLiveScan,120000\)/);
           console.log('NEXORA website safety and intelligence invariants passed.');
           NODE
