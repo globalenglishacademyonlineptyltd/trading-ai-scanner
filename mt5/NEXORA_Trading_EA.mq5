@@ -24,9 +24,20 @@ input int    InpTrailingStepPoints = 50;
 input int    InpPollSeconds = 120; // Scan all Market Watch instruments every two minutes
 input long   InpMagicNumber = 24111401;
 input ENUM_TIMEFRAMES InpAnalysisTimeframe = PERIOD_CURRENT; // PERIOD_CURRENT uses the chart timeframe
+input bool   InpScanChartTimeframe = true; // Keep the chart/input timeframe as an independent signal stream
+input bool   InpScanM1 = false;
+input bool   InpScanM5 = false;
+input bool   InpScanM10 = false;
+input bool   InpScanM15 = false;
+input bool   InpScanM30 = false;
+input bool   InpScanH1 = false;
+input bool   InpScanH4 = false;
+input bool   InpScanD1 = false;
+input bool   InpScanW1 = false;
 
 string g_lastSignalKey = "";
 string g_processedKeys[];
+int g_processedNext = 0;
 datetime g_lastHeartbeat = 0;
 datetime g_lastScan = 0;
 string g_lastStatus = "Starting";
@@ -65,12 +76,21 @@ string CurrentChartInterval()
 {
    return EnumToString(AnalysisTimeframe());
 }
-bool SignalAlreadyProcessed(int slot,string key)
+bool SignalAlreadyProcessed(string key)
 {
-   if(slot<0) return false;
-   if(ArraySize(g_processedKeys)<=slot) ArrayResize(g_processedKeys,slot+1);
-   if(g_processedKeys[slot]==key) return true;
-   g_processedKeys[slot]=key;
+   int count=ArraySize(g_processedKeys);
+   for(int i=0;i<count;i++)
+      if(g_processedKeys[i]==key) return true;
+   if(count<2048)
+   {
+      ArrayResize(g_processedKeys,count+1);
+      g_processedKeys[count]=key;
+   }
+   else
+   {
+      g_processedKeys[g_processedNext]=key;
+      g_processedNext=(g_processedNext+1)%2048;
+   }
    return false;
 }
 // Detect symbol/timeframe changes on this chart and discard the previous chart's signal state.
@@ -410,7 +430,7 @@ void ManageTrailingStop()
       }
    }
 }
-void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
+void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe)
 {
    if(g_requestBusy) return;
    g_requestBusy=true;
@@ -455,7 +475,7 @@ void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
    string signalKey=providerSymbol+"|"+EnumToString(timeframe)+"|"+direction+"|"+signalTime;
    g_lastStatus="Scanned "+providerSymbol+" "+direction+" score "+DoubleToString(score,0);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
-   if(SignalAlreadyProcessed(slot,signalKey)) { g_requestBusy=false; return; }
+   if(SignalAlreadyProcessed(signalKey)) { g_requestBusy=false; return; }
    g_lastSignalKey=signalKey;
    Print("NEXORA signal: ",direction," ",providerSymbol," score=",score," entry=",entry," SL=",sl," TP=",tp);
    if(!InpEnableAutoExecution)
@@ -592,13 +612,22 @@ void ScanMarketWatch()
       Print("NEXORA: Market Watch is empty. Add instruments in MT5 Market Watch.");
       return;
    }
-   Print("NEXORA: scanning ",total," Market Watch instruments on ",EnumToString(tf));
+   Print("NEXORA: scanning ",total," Market Watch instruments across selected independent timeframes.");
    for(int i=0;i<total;i++)
    {
       string symbol=SymbolName(i,true);
       if(symbol=="") continue;
       if(!SymbolSelect(symbol,true)) continue;
-      ProcessSignal(symbol,tf,i);
+      if(InpScanChartTimeframe) ProcessSignal(symbol,tf);
+      if(InpScanM1 && tf!=PERIOD_M1) ProcessSignal(symbol,PERIOD_M1);
+      if(InpScanM5 && tf!=PERIOD_M5) ProcessSignal(symbol,PERIOD_M5);
+      if(InpScanM10 && tf!=PERIOD_M10) ProcessSignal(symbol,PERIOD_M10);
+      if(InpScanM15 && tf!=PERIOD_M15) ProcessSignal(symbol,PERIOD_M15);
+      if(InpScanM30 && tf!=PERIOD_M30) ProcessSignal(symbol,PERIOD_M30);
+      if(InpScanH1 && tf!=PERIOD_H1) ProcessSignal(symbol,PERIOD_H1);
+      if(InpScanH4 && tf!=PERIOD_H4) ProcessSignal(symbol,PERIOD_H4);
+      if(InpScanD1 && tf!=PERIOD_D1) ProcessSignal(symbol,PERIOD_D1);
+      if(InpScanW1 && tf!=PERIOD_W1) ProcessSignal(symbol,PERIOD_W1);
    }
 }
 void OnTimer()
