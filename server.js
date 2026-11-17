@@ -12,6 +12,7 @@ const PORT = Number(process.env.PORT || 8080);
 let automaticTradingEnabled = false;
 let mt5LastHeartbeat = null;
 const mt5SignalCache = new Map();
+const mt5VolumeCache = new Map();
 const brokerExecutionReady = false;
 const automationStatus = () => ({
   enabled: automaticTradingEnabled,
@@ -454,11 +455,20 @@ async function route(req, res, url) {
       time: String(c.time || ''),
       open: safeNumber(c.open), high: safeNumber(c.high),
       low: safeNumber(c.low), close: safeNumber(c.close),
-      volume: safeNumber(c.volume ?? 0)
+      volume: c.volume === undefined || c.volume === null ? null : safeNumber(c.volume)
     })).filter(c => c.time && c.open !== null && c.high !== null && c.low !== null && c.close !== null &&
       c.high >= Math.max(c.open, c.close, c.low) && c.low <= Math.min(c.open, c.close, c.high));
     if (candles.length < 60) return send(res, 400, { error: 'Insufficient valid closed MT5 candles after validation.' });
-    const series = { symbol, interval, candles, source: 'Deriv MT5 chart data' };
+    const series = { symbol, interval, candles, source: 'MT5 terminal candles' };
+    const volumeKey = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') + '|' + interval.toLowerCase();
+    const volumeObservations = candles.filter(c => Number.isFinite(c.volume) && c.volume >= 0);
+    if (volumeObservations.length) {
+      const prior = mt5VolumeCache.get(volumeKey);
+      const byTime = new Map((prior?.candles || []).map(c => [c.time, c]));
+      for (const candle of volumeObservations) byTime.set(candle.time, candle);
+      const merged = [...byTime.values()].sort((a,b) => Date.parse(a.time)-Date.parse(b.time)).slice(-500);
+      mt5VolumeCache.set(volumeKey, { symbol, interval, candles: merged, updatedAt: new Date().toISOString() });
+    }
     const analysis = analyseSeries(series);
     console.info('NEXORA local MT5 analysis', { chartSymbol: symbol, candleCount: candles.length, interval });
     return send(res, 200, {
@@ -469,6 +479,19 @@ async function route(req, res, url) {
       source: analysis.source,
       warnings: [...(analysis.warnings || []), 'Analysis uses closed candles supplied by the connected MT5 terminal; verify data freshness and broker contract rules.']
     });
+  }
+  if (p === '/api/mt5/volume' && req.method === 'GET') {
+    const requested = String(url.searchParams.get('symbol') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!requested) return send(res,400,{error:'symbol is required'});
+    const entries = [...mt5VolumeCache.values()]
+      .filter(item => item.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') === requested)
+      .map(item => {
+        const result = analyseVolume({ candles: item.candles });
+        return { ...result, symbol:item.symbol, interval:item.interval, source:'MT5 terminal-reported volume',
+          updatedAt:item.updatedAt, lastCandleAt:item.candles.at(-1)?.time || null };
+      })
+      .sort((a,b) => Date.parse(b.lastCandleAt || 0)-Date.parse(a.lastCandleAt || 0));
+    return send(res,200,{symbol:url.searchParams.get('symbol'),observations:entries,updatedAt:new Date().toISOString()});
   }
   if (p === '/api/mt5/signal' && req.method === 'GET') {
     if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
