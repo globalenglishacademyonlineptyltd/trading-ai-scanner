@@ -39,19 +39,16 @@ let newsBackoffUntil = 0;
 const symbolSearchCache = new Map();
 const LIVE_WATCHLIST = [
   { symbol: 'EUR/USD', name: 'Euro / US Dollar', market: 'forex' },
-  { symbol: 'GBP/USD', name: 'British Pound / US Dollar', market: 'forex' },
-  { symbol: 'USD/JPY', name: 'US Dollar / Japanese Yen', market: 'forex' },
   { symbol: 'USD/ZAR', name: 'US Dollar / South African Rand', market: 'forex' },
   { symbol: 'XAU/USD', name: 'Gold / US Dollar', market: 'metals' },
-  { symbol: 'XAG/USD', name: 'Silver / US Dollar', market: 'metals' },
   { symbol: 'WTI', name: 'WTI Crude Oil', market: 'energy' },
   { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', market: 'crypto' },
-  { symbol: 'ETH/USD', name: 'Ethereum / US Dollar', market: 'crypto' },
   { symbol: 'SPY', name: 'S&P 500 ETF', market: 'indices' },
   { symbol: 'AAPL', name: 'Apple', market: 'shares' },
   { symbol: 'NVDA', name: 'NVIDIA', market: 'shares' }
 ];
-const SCAN_INTERVAL_MS = 15 * 60 * 1000; // Provider quota-conscious market scan cadence
+// A 30-minute cadence limits provider consumption while keeping a regular website refresh.
+const SCAN_INTERVAL_MS = 30 * 60 * 1000;
 const NEWS_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const GLOBAL_NEWS_QUERY = 'global financial markets OR crude oil OR energy OR central banks OR inflation OR interest rates OR stocks OR bonds OR currencies OR commodities OR cryptocurrency';
 let globalNewsIntel = { items: [], source: 'Not loaded', lastUpdated: null, nextRefreshAt: null, stale: true, error: null };
