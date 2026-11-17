@@ -5,6 +5,7 @@ const fmt=(n, max=6)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:
 const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 let scanRefreshTimer=null;
 let newsAutoRefreshTimer=null;
+let mt5SignalRefreshTimer=null;
 const NEWS_AUTO_REFRESH_MS=2*60*60*1000;
 let latestScan=null;
 function renderLiveScan(data){
@@ -81,7 +82,43 @@ async function refreshLiveScan(){
 function startLiveScanRefresh(){
   refreshLiveScan();
   if(scanRefreshTimer) clearInterval(scanRefreshTimer);
-  scanRefreshTimer=setInterval(refreshLiveScan,30000);
+  scanRefreshTimer=setInterval(refreshLiveScan,120000);
+}
+
+async function refreshMt5Signals(){
+  const status=$('mt5SignalStatus'),feed=$('mt5SignalFeed');
+  if(!status||!feed)return;
+  try{
+    const response=await fetch('/api/mt5/signals',{cache:'no-store'});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'MT5 signal feed unavailable');
+    const signals=data.signals||[];
+    status.textContent=data.connected
+      ? 'MT5 connected · heartbeat '+(data.lastHeartbeat?new Date(data.lastHeartbeat).toLocaleTimeString():'recent')
+      : 'MT5 not connected · waiting for terminal heartbeat';
+    if(!signals.length){
+      feed.innerHTML='<p class="muted">No confirmed MT5 signals have been published yet. Signals appear here after candle and live-tick direction agree.</p>';
+      return;
+    }
+    feed.innerHTML=signals.map(signal=>{
+      const stale=signal.status==='STALE';
+      return '<div class="opp">'+
+        '<div class="instrument"><strong>'+escapeHtml(signal.symbol)+'</strong><small>'+escapeHtml(signal.interval)+' · Received '+escapeHtml(signal.receivedAt?new Date(signal.receivedAt).toLocaleString():'time unavailable')+'</small></div>'+
+        '<div class="direction '+(signal.direction==='BUY'?'up':'down')+'">'+escapeHtml(signal.direction)+(stale?' · STALE':' · CONFIRMED')+'</div>'+
+        '<div class="muted">Candle score '+fmt(signal.score,0)+' / 100 · Tick score '+fmt(signal.tickScore,0)+' / 100</div>'+
+        '<div class="muted">Entry '+fmt(signal.entry)+' · Stop-loss '+fmt(signal.stopLoss)+' · Take-profit '+fmt(signal.takeProfit)+'</div>'+
+        '<small class="muted">'+escapeHtml(signal.source||'MT5 terminal feed')+'</small>'+
+        '</div>';
+    }).join('');
+  }catch(error){
+    status.textContent='MT5 signal feed unavailable';
+    feed.innerHTML='<p class="form-error">'+escapeHtml(error.message)+'</p>';
+  }
+}
+function startMt5SignalRefresh(){
+  refreshMt5Signals();
+  if(mt5SignalRefreshTimer)clearInterval(mt5SignalRefreshTimer);
+  mt5SignalRefreshTimer=setInterval(refreshMt5Signals,120000);
 }
 function addMessage(text,type){
   const el=document.createElement('div');el.className=`message ${type}`;el.textContent=text;$('messages').appendChild(el);$('messages').scrollTop=$('messages').scrollHeight;
@@ -393,3 +430,4 @@ loadNews();
 if(newsAutoRefreshTimer)clearInterval(newsAutoRefreshTimer);
 newsAutoRefreshTimer=setInterval(()=>loadNews(true),NEWS_AUTO_REFRESH_MS);
 startLiveScanRefresh();
+startMt5SignalRefresh();

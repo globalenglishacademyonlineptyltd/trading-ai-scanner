@@ -62,10 +62,18 @@
 
     <section class="card">
       <div class="section-head"><div><span class="label">AUTOMATIC PROVIDER SCAN</span><h2>Live market opportunities</h2></div><span class="muted" id="scanTime">Waiting for provider data</span></div>
-      <div class="live-scan-toolbar"><span id="scanConnection">Waiting for first scan…</span><span>Automatic refresh: every 30 minutes</span><button class="secondary" id="refreshLiveScan">Refresh status</button></div>
+      <div class="live-scan-toolbar"><span id="scanConnection">Waiting for first scan…</span><span>Signal refresh: every 2 minutes</span><button class="secondary" id="refreshLiveScan">Refresh status</button></div>
       <div class="opportunity-list" id="opportunities"><p class="muted">Waiting for live market data from Twelve Data. No demonstration prices are shown here.</p></div>
       <p class="notice">Only provider-returned instruments are shown. A failed or stale instrument is marked unavailable; NEXORA will not substitute sample values.</p>
     </section>
+
+    <section class="card">
+      <div class="section-head"><div><span class="label">MT5 TERMINAL · CONFIRMED SIGNALS</span><h2>Live NEXORA MT5 signals</h2></div><span class="muted" id="mt5SignalStatus">Waiting for MT5 connection</span></div>
+      <div id="mt5SignalFeed" class="opportunity-list"><p class="muted">Confirmed MT5 signals will appear here after the EA connects and its candle and live-tick engines agree.</p></div>
+      <p class="notice">Signals are published from your connected MT5 broker feed after independent candle and tick confirmation. Entries, stop-losses and targets are indicative; this panel does not place orders.</p>
+    </section>
+
+    <section class="card">
       <div class="section-head"><div><span class="label">MARKET PARTICIPATION & CATALYST CONTEXT</span><h2>Volume and market drivers</h2></div><span class="muted">Evidence-led · No assumed causes</span></div>
       <p class="section-intro">NEXORA compares the latest provider-reported candle volume with the previous 20 observations, checks the candle direction and looks for topic-matched headlines. A headline match is context to investigate, not proof that it caused the move. Volume may be unavailable or may not represent centralized traded volume.</p>
       <div id="marketCatalysts" class="opportunity-list"><p class="muted">Volume and catalyst context will appear after the next successful scan.</p></div>

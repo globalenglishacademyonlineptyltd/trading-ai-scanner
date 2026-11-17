@@ -6,6 +6,7 @@ on:
     paths:
       - "server.js"
       - "public/**"
+      - "mt5/**"
       - ".github/workflows/nexora-website-validation.yml"
 
 permissions:
@@ -25,9 +26,9 @@ jobs:
         run: |
           node --check server.js
           node --check public/app.js
-      - name: Smoke-test website server without broker credentials
+      - name: Smoke-test website and MT5 authentication
         run: |
-          PORT=8787 node server.js >/tmp/nexora-server.log 2>&1 &
+          PORT=8787 NEXORA_MT5_TOKEN=nexora-ci-test-token-0123456789abcdef node server.js >/tmp/nexora-server.log 2>&1 &
           SERVER_PID=$!
           trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
           for attempt in $(seq 1 20); do
@@ -37,6 +38,48 @@ jobs:
             sleep 1
           done
           node --input-type=module -e "import fs from 'node:fs'; const health=JSON.parse(fs.readFileSync('/tmp/nexora-health.json','utf8')); if(health.ok!==true || health.service!=='NEXORA AI') process.exit(1); console.log('NEXORA health endpoint passed.');"
+          HTTP_CODE=$(curl --silent --output /tmp/nexora-mt5-response.json --write-out '%{http_code}' \
+            -X POST http://127.0.0.1:8787/api/mt5/signal-local \
+            -H 'Content-Type: application/json' \
+            --data '{"chartSymbol":"EURUSD","interval":"PERIOD_H1","candles":[]}')
+          test "$HTTP_CODE" = "401"
+          node --input-type=module -e "import fs from 'node:fs'; const body=JSON.parse(fs.readFileSync('/tmp/nexora-mt5-response.json','utf8')); if(!String(body.error||'').toLowerCase().includes('auth')) process.exit(1); console.log('Unauthenticated MT5 signal request correctly rejected.');"
+          node --input-type=module <<'NODE'
+          const token = 'nexora-ci-test-token-0123456789abcdef';
+          const now = Date.now();
+          const ticks = Array.from({length: 120}, (_, i) => {
+            const bid = 1.10000 + i * 0.00001;
+            return {timeMsc: now - 60000 + i * 500, bid, ask: bid + 0.00010};
+          });
+          const response = await fetch('http://127.0.0.1:8787/api/mt5/signal-ticks', {
+            method: 'POST',
+            headers: {'content-type': 'application/json', authorization: 'Bearer ' + token},
+            body: JSON.stringify({chartSymbol: 'EURUSD', digits: 5, ticks})
+          });
+          const result = await response.json();
+          if (!response.ok || result.symbol !== 'EURUSD' || !['BUY','SELL','WAIT'].includes(result.direction) || result.source !== 'MT5 live bid/ask ticks') {
+            console.error('MT5 tick analysis test failed:', response.status, result);
+            process.exit(1);
+          }
+          console.log('Authenticated MT5 live tick-analysis endpoint passed.');
+          const published = await fetch('http://127.0.0.1:8787/api/mt5/signal-publish', {
+            method: 'POST',
+            headers: {'content-type': 'application/json', authorization: 'Bearer ' + token},
+            body: JSON.stringify({symbol:'EURUSD',interval:'PERIOD_H1',direction:'BUY',score:82,tickScore:76,timestamp:'2026-11-17 12:00',entry:1.1,stopLoss:1.09,takeProfit:1.12})
+          });
+          const publishResult = await published.json();
+          if (!published.ok || publishResult.ok !== true || publishResult.signal?.symbol !== 'EURUSD') {
+            console.error('MT5 signal publishing test failed:', published.status, publishResult);
+            process.exit(1);
+          }
+          const feedResponse = await fetch('http://127.0.0.1:8787/api/mt5/signals');
+          const feed = await feedResponse.json();
+          if (!feedResponse.ok || !feed.signals?.some(s => s.symbol === 'EURUSD' && s.interval === 'PERIOD_H1' && s.direction === 'BUY')) {
+            console.error('Website MT5 signal feed test failed:', feedResponse.status, feed);
+            process.exit(1);
+          }
+          console.log('Authenticated MT5 signal publishing and website feed passed.');
+          NODE
       - name: Verify safety and intelligence invariants
         run: |
           node --input-type=module <<'NODE'
@@ -45,8 +88,9 @@ jobs:
           const server = fs.readFileSync('server.js', 'utf8');
           const app = fs.readFileSync('public/app.js', 'utf8');
           const html = fs.readFileSync('public/index.html', 'utf8');
+          const ea = fs.readFileSync('mt5/NEXORA_Trading_EA.mq5', 'utf8');
           assert.match(server, /NEWS_REFRESH_INTERVAL_MS\s*=\s*2\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
-          assert.match(server, /SCAN_INTERVAL_MS\s*=\s*30\s*\*\s*60\s*\*\s*1000/);
+          assert.match(server, /SCAN_INTERVAL_MS\s*=\s*Math\.max\(120000, Number\(process\.env\.NEXORA_SCAN_INTERVAL_MS\) \|\| 120000\)/);
           assert.match(server, /function analyseVolume\(/);
           assert.match(server, /relatedHeadlines/);
           assert.match(server, /automaticTradingEnabled\s*=\s*false/);
@@ -54,5 +98,117 @@ jobs:
           assert.equal((app.match(/let newsAutoRefreshTimer/g) || []).length, 1);
           assert.equal((app.match(/const NEWS_AUTO_REFRESH_MS/g) || []).length, 1);
           assert.match(html, /id="marketCatalysts"/);
+          assert.match(html, /Signal refresh: every 2 minutes/);
+          assert.match(ea, /InpEnableAutoExecution\s*=\s*false/);
+          assert.match(ea, /StringLen\(InpConnectorToken\)<32/);
+          assert.match(ea, /EventSetTimer\(15\)/);
+          assert.match(ea, /TimeLocal\(\)-g_lastHeartbeat>=30/);
+          assert.match(ea, /TimeLocal\(\)-g_lastScan>=MathMax\(120,InpPollSeconds\)/);
+          assert.match(ea, /ACCOUNT_TRADE_MODE_DEMO/);
+          assert.match(ea, /automatic execution is demo-account only/);
+          assert.match(ea, /InpRiskPerTradePercent\s*=\s*1\.0/);
+          assert.match(ea, /InpMaxAccountRiskPercent\s*=\s*3\.0/);
+          assert.match(ea, /InpMaxOpenPositions\s*=\s*3/);
+          assert.match(ea, /InpPollSeconds\s*=\s*120/);
+          assert.match(ea, /OrderCalcProfit\(/);
+          assert.match(ea, /CalculateExistingAccountRisk\(/);
+          assert.doesNotMatch(ea, /InpFixedLots/);
+          assert.match(ea, /SymbolsTotal\(true\)/);
+          assert.match(ea, /CopyTicks/);
+          assert.match(ea, /signal-ticks/);
+          assert.match(ea, /conflicts with tick analysis/);
+          assert.match(ea, /InpAnalysisTimeframe\s*=\s*PERIOD_CURRENT/);
+          assert.match(ea, /InpScanM5\s*=\s*false/);
+          assert.match(ea, /InpScanM10\s*=\s*false/);
+          assert.match(ea, /InpScanH1\s*=\s*false/);
+          assert.match(ea, /InpScanH4\s*=\s*false/);
+          assert.match(ea, /SignalAlreadyProcessed\(signalKey\)/);
+          assert.match(ea, /signal-publish/);
+          assert.match(server, /\/api\/mt5\/signal-publish/);
+          assert.match(server, /\/api\/mt5\/signals/);
+          assert.match(app, /startMt5SignalRefresh\(\)/);
+          assert.match(html, /id="mt5SignalFeed"/);
+          assert.match(ea, /ManageTrailingStop\(\)/);
+          assert.match(ea, /trade\.PositionModify\(ticket/);
+          assert.match(app, /setInterval\(refreshLiveScan,120000\)/);
           console.log('NEXORA website safety and intelligence invariants passed.');
           NODE
+
+
+  compile-mql5:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install MetaTrader 5 and compile the Expert Advisor
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList '/auto' -Wait
+
+          $installRoots = @(
+            (Join-Path $env:ProgramFiles 'MetaTrader 5'),
+            (Join-Path ${env:ProgramFiles(x86)} 'MetaTrader 5'),
+            (Join-Path $env:APPDATA 'MetaQuotes'),
+            (Join-Path $env:LOCALAPPDATA 'MetaQuotes'),
+            (Join-Path $env:ProgramData 'MetaQuotes')
+          ) | Where-Object { Test-Path $_ }
+          $editor = Get-ChildItem -Path $installRoots -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $editor) { throw 'MetaEditor 64-bit was not found after MetaTrader 5 installation.' }
+          Write-Host "MetaEditor found at: $($editor.FullName)"
+
+          $tradeInclude = Get-ChildItem -Path $installRoots -Filter 'Trade.mqh' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $tradeInclude) {
+            $terminalExe = Get-ChildItem -Path (Split-Path $editor.FullName -Parent) -Filter 'terminal64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($terminalExe) {
+              Write-Host "Initializing terminal data folder using: $($terminalExe.FullName)"
+              $terminalProcess = Start-Process -FilePath $terminalExe.FullName -ArgumentList '/portable' -PassThru
+              Start-Sleep -Seconds 12
+              if (-not $terminalProcess.HasExited) { Stop-Process -Id $terminalProcess.Id -Force }
+              $tradeInclude = Get-ChildItem -Path $installRoots -Filter 'Trade.mqh' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+          }
+          if (-not $tradeInclude) {
+            Get-ChildItem -Path $installRoots -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Search root: $($_.FullName)" }
+            throw 'The standard MQL5 Trade.mqh include file was not found after terminal initialization.'
+          }
+          Write-Host "MQL5 standard library found at: $($tradeInclude.FullName)"
+          $mql5Root = Split-Path (Split-Path (Split-Path $tradeInclude.FullName -Parent) -Parent) -Parent
+          $source = Join-Path $env:GITHUB_WORKSPACE 'mt5\NEXORA_Trading_EA.mq5'
+          $arguments = @("/compile:`"$source`"", "/include:`"$mql5Root`"", '/log')
+          $editorProcess = Start-Process -FilePath $editor.FullName -ArgumentList $arguments -PassThru
+
+          $logPath = [System.IO.Path]::ChangeExtension($source, '.log')
+          $deadline = (Get-Date).AddSeconds(120)
+          $compileLog = ''
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path $logPath) {
+              $compileLog = Get-Content -Path $logPath -Raw
+              if ($compileLog -match 'Result:') { break }
+            }
+            Start-Sleep -Seconds 2
+          }
+          if ($compileLog -notmatch 'Result:') {
+            Get-Process -Name 'MetaEditor64' -ErrorAction SilentlyContinue | Stop-Process -Force
+            throw "MetaEditor did not finish compilation within 120 seconds. Latest log: $compileLog"
+          }
+          Get-Process -Name 'MetaEditor64' -ErrorAction SilentlyContinue | Stop-Process -Force
+          Write-Host $compileLog
+          $result = [regex]::Match($compileLog, 'Result:\s*(\d+)\s+errors?,\s*(\d+)\s+warnings?')
+          if (-not $result.Success) { throw 'Could not read the MetaEditor compilation result from its log.' }
+          if ([int]$result.Groups[1].Value -ne 0) { throw "MetaEditor reported $($result.Groups[1].Value) compilation errors." }
+          $compiled = [System.IO.Path]::ChangeExtension($source, '.ex5')
+          if (-not (Test-Path $compiled)) { throw 'MetaEditor reported no errors but did not produce the NEXORA EX5 file.' }
+          Write-Host "NEXORA EA compiled successfully: $compiled"
+
+      - name: Publish compiled NEXORA EA files
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXORA-MT5-compiled
+          path: |
+            mt5/NEXORA_Trading_EA.mq5
+            mt5/NEXORA_Trading_EA.ex5
+            mt5/NEXORA_Trading_EA.log
+          if-no-files-found: error
+          retention-days: 90
