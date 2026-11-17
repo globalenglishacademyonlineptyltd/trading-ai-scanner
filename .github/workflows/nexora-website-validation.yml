@@ -154,15 +154,15 @@ jobs:
 
           $logPath = [System.IO.Path]::ChangeExtension($source, '.log')
           $deadline = (Get-Date).AddSeconds(60)
-          while (-not (Test-Path $logPath) -and (Get-Date) -lt $deadline -and -not $editorProcess.HasExited) {
+          while (-not (Test-Path $logPath) -and (Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 2
           }
           if (-not (Test-Path $logPath)) {
-            if (-not $editorProcess.HasExited) { Stop-Process -Id $editorProcess.Id -Force }
+            Get-Process -Name 'MetaEditor64' -ErrorAction SilentlyContinue | Stop-Process -Force
             throw "MetaEditor did not create the expected compile log: $logPath"
           }
           $compileLog = Get-Content -Path $logPath -Raw
-          if (-not $editorProcess.HasExited) { Stop-Process -Id $editorProcess.Id -Force }
+          Get-Process -Name 'MetaEditor64' -ErrorAction SilentlyContinue | Stop-Process -Force
           Write-Host $compileLog
           $result = [regex]::Match($compileLog, 'Result:\s*(\d+)\s+errors?,\s*(\d+)\s+warnings?')
           if (-not $result.Success) { throw 'Could not read the MetaEditor compilation result from its log.' }
