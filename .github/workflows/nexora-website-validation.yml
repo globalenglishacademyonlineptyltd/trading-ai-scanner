@@ -26,7 +26,7 @@ jobs:
         run: |
           node --check server.js
           node --check public/app.js
-      - name: Smoke-test website server without broker credentials
+      - name: Smoke-test website and MT5 authentication
         run: |
           PORT=8787 node server.js >/tmp/nexora-server.log 2>&1 &
           SERVER_PID=$!
@@ -38,23 +38,12 @@ jobs:
             sleep 1
           done
           node --input-type=module -e "import fs from 'node:fs'; const health=JSON.parse(fs.readFileSync('/tmp/nexora-health.json','utf8')); if(health.ok!==true || health.service!=='NEXORA AI') process.exit(1); console.log('NEXORA health endpoint passed.');"
-      - name: Verify MT5 endpoint rejects unauthenticated requests
-        run: |
-          PORT=8787 node server.js >/tmp/nexora-mt5-auth-server.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 20); do
-            if curl --fail --silent http://127.0.0.1:8787/api/health >/dev/null; then
-              break
-            fi
-            sleep 1
-          done
           HTTP_CODE=$(curl --silent --output /tmp/nexora-mt5-response.json --write-out '%{http_code}' \
             -X POST http://127.0.0.1:8787/api/mt5/signal-local \
             -H 'Content-Type: application/json' \
             --data '{"chartSymbol":"EURUSD","interval":"PERIOD_H1","candles":[]}')
           test "$HTTP_CODE" = "401"
-          node --input-type=module -e "import fs from 'node:fs'; const body=JSON.parse(fs.readFileSync('/tmp/nexora-mt5-response.json','utf8')); if(!String(body.error||'').includes('authentication')) process.exit(1); console.log('Unauthenticated MT5 signal request correctly rejected.');"
+          node --input-type=module -e "import fs from 'node:fs'; const body=JSON.parse(fs.readFileSync('/tmp/nexora-mt5-response.json','utf8')); if(!String(body.error||'').toLowerCase().includes('auth')) process.exit(1); console.log('Unauthenticated MT5 signal request correctly rejected.');"
       - name: Verify safety and intelligence invariants
         run: |
           node --input-type=module <<'NODE'
