@@ -131,6 +131,26 @@ bool BuildLocalCandlePayload(string symbol,ENUM_TIMEFRAMES timeframe,string &pay
    payload+="]}";
    return true;
 }
+bool BuildTickPayload(string symbol,string &payload)
+{
+   MqlTick ticks[];
+   ArraySetAsSeries(ticks,false);
+   ulong fromMsc=(ulong)(TimeCurrent()-900)*1000;
+   int copied=CopyTicks(symbol,ticks,COPY_TICKS_INFO,fromMsc,300);
+   if(copied<60) { g_lastStatus="Waiting for at least 60 recent bid/ask ticks for "+symbol; return false; }
+   int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
+   payload="{\"chartSymbol\":\""+symbol+"\",\"digits\":"+IntegerToString(digits)+",\"ticks\":[";
+   int included=0;
+   for(int i=0;i<copied;i++) {
+      if(ticks[i].time_msc==0 || ticks[i].bid<=0 || ticks[i].ask<ticks[i].bid) continue;
+      if(included>0) payload+=",";
+      payload+="{\"timeMsc\":"+IntegerToString((long)ticks[i].time_msc)+",\"bid\":"+DoubleToString(ticks[i].bid,digits)+",\"ask\":"+DoubleToString(ticks[i].ask,digits)+"}";
+      included++;
+   }
+   payload+="]}";
+   if(included<60) { g_lastStatus="Fewer than 60 valid bid/ask ticks for "+symbol; return false; }
+   return true;
+}
 string ResolveProviderSymbol()
 {
    string s=_Symbol;
@@ -416,6 +436,21 @@ void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe,int slot)
    double entry=JsonDouble(json,"entry");
    double sl=JsonDouble(json,"stopLoss");
    double tp=JsonDouble(json,"takeProfit");
+   // Independent live-tick confirmation: unavailable or conflicting ticks suppress the signal.
+   string tickPayload,tickJson;
+   if(!BuildTickPayload(symbol,tickPayload)) { g_requestBusy=false; return; }
+   string tickUrl=TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-ticks";
+   if(!HttpPostJson(tickUrl,tickPayload,tickJson)) { g_requestBusy=false; return; }
+   string tickDirection=JsonValue(tickJson,"direction");
+   double tickScore=JsonDouble(tickJson,"score");
+   if((direction=="BUY" || direction=="SELL") && tickDirection!=direction)
+   {
+      g_lastStatus="WAIT: candle signal "+direction+" conflicts with tick analysis "+tickDirection+" for "+symbol;
+      Print("NEXORA CONFIRMATION BLOCK: ",g_lastStatus,". Candle score=",score," tick score=",tickScore);
+      g_requestBusy=false; return;
+   }
+   if(direction!="BUY" && direction!="SELL") { g_lastStatus="WAIT: candle engine has no trade for "+symbol; g_requestBusy=false; return; }
+   Print("NEXORA dual-engine confirmation: ",symbol," ",direction," candle score=",score," tick score=",tickScore);
    string signalKey=providerSymbol+"|"+EnumToString(timeframe)+"|"+direction+"|"+signalTime;
    g_lastStatus="Scanned "+providerSymbol+" "+direction+" score "+DoubleToString(score,0);
    if(direction!="BUY" && direction!="SELL") { g_requestBusy=false; return; }
