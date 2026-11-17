@@ -1,0 +1,46 @@
+name: NEXORA website validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "server.js"
+      - "public/**"
+      - ".github/workflows/nexora-website-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Check JavaScript syntax
+        run: |
+          node --check server.js
+          node --check public/app.js
+      - name: Verify safety and intelligence invariants
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const server = fs.readFileSync('server.js', 'utf8');
+          const app = fs.readFileSync('public/app.js', 'utf8');
+          const html = fs.readFileSync('public/index.html', 'utf8');
+          assert.match(server, /NEWS_REFRESH_INTERVAL_MS\s*=\s*2\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+          assert.match(server, /SCAN_INTERVAL_MS\s*=\s*30\s*\*\s*60\s*\*\s*1000/);
+          assert.match(server, /function analyseVolume\(/);
+          assert.match(server, /relatedHeadlines/);
+          assert.match(server, /automaticTradingEnabled\s*=\s*false/);
+          assert.match(server, /function assertAutomaticExecutionAllowed\(\)\s*\{\s*throw new Error/);
+          assert.equal((app.match(/let newsAutoRefreshTimer/g) || []).length, 1);
+          assert.equal((app.match(/const NEWS_AUTO_REFRESH_MS/g) || []).length, 1);
+          assert.match(html, /id="marketCatalysts"/);
+          console.log('NEXORA website safety and intelligence invariants passed.');
+          NODE
