@@ -393,3 +393,21 @@ loadNews();
 if(newsAutoRefreshTimer)clearInterval(newsAutoRefreshTimer);
 newsAutoRefreshTimer=setInterval(()=>loadNews(true),NEWS_AUTO_REFRESH_MS);
 startLiveScanRefresh();
+
+// Live, authenticated MT5 Advanced final decisions (website display only).
+async function refreshMt5SignalFeed(){
+  try {
+    const r=await fetch('/api/mt5/signals',{cache:'no-store'}); const data=await r.json();
+    if(!r.ok) throw new Error(data.error||'MT5 feed unavailable');
+    const latest=data.latest; const status=$('mt5FeedStatus');
+    if(!latest){status.textContent='WAITING FOR MT5';return;}
+    status.textContent='MT5 SIGNAL RECEIVED';
+    const esc=escapeHtml, val=x=>x===null||x===undefined||x===''?'Not supplied':esc(x);
+    const fields=[['Decision',latest.direction],['Reason',latest.reason],['Tick analysis',latest.tickSummary],['Candle analysis',latest.candleSummary],['Combined score',latest.score===undefined?'Not supplied':latest.score+'/100'],['Entry',latest.entry],['Stop loss',latest.stopLoss],['Take profit',latest.takeProfit],['Trade volume / lots',latest.tradeVolume],['Market volume',latest.marketVolume],['Volume type',latest.volumeType],['Volume source',latest.volumeSource],['Data source',latest.dataSource],['Analysis timestamp',latest.analysisTime],['Website received',latest.receivedAt]];
+    $('mt5SignalLatest').innerHTML='<div class="result-grid">'+fields.map(([k,v])=>'<div class="result-tile"><span>'+esc(k)+'</span><strong>'+val(v)+'</strong></div>').join('')+'</div><p class="notice">'+val(latest.explanation)+'</p><p class="muted">Instrument '+val(latest.symbol)+' · Timeframe '+val(latest.timeframe)+' · EA '+val(latest.eaVersion)+' · Automatic execution '+(latest.autoExecution===true?'ON':'OFF')+'</p>';
+    const rows=data.items||[];
+    $('mt5SignalHistory').innerHTML=rows.slice(0,20).map(x=>'<div class="opp"><div class="instrument">'+esc(x.symbol)+'<small>'+esc(x.analysisTime||x.receivedAt||'Time unavailable')+'</small></div><div class="direction '+(x.direction==='BUY'?'high':x.direction==='SELL'?'sell':'medium')+'">'+esc(x.direction)+'</div><div class="muted">'+esc(x.reason||'No reason supplied')+'</div><div>'+val(x.entry)+'</div><div>'+val(x.stopLoss)+' / '+val(x.takeProfit)+'</div></div>').join('');
+  } catch(e){ $('mt5FeedStatus').textContent='FEED UNAVAILABLE'; $('mt5SignalLatest').innerHTML='<p class="muted">'+escapeHtml(e.message)+'</p>'; }
+}
+refreshMt5SignalFeed();
+setInterval(refreshMt5SignalFeed,5000);
