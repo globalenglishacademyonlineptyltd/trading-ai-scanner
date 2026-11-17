@@ -484,10 +484,10 @@ async function route(req, res, url) {
     const requested = String(url.searchParams.get('symbol') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!requested) return send(res,400,{error:'symbol is required'});
     const entries = [...mt5VolumeCache.values()]
-      .filter(item => item.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') === requested)
+      .filter(item => { const candidate=item.symbol.toUpperCase().replace(/[^A-Z0-9]/g, ''); return candidate === requested || (requested.length >= 6 && candidate.startsWith(requested)); })
       .map(item => {
         const result = analyseVolume({ candles: item.candles });
-        return { ...result, volumeType:'MT5 terminal-reported volume; broker feed only, not consolidated market volume', symbol:item.symbol, interval:item.interval, source:'MT5 terminal-reported volume',
+        return { ...result, volumeType:'MT5 broker tick volume; broker feed only, not consolidated market volume', symbol:item.symbol, interval:item.interval, source:'MT5 broker tick volume',
           updatedAt:item.updatedAt, lastCandleAt:item.candles.at(-1)?.time || null };
       })
       .sort((a,b) => Date.parse(b.lastCandleAt || 0)-Date.parse(a.lastCandleAt || 0));
