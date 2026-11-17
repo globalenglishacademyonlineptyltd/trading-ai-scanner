@@ -16,7 +16,7 @@ input string InpProviderSymbol = ""; // Leave blank to derive the provider symbo
 input string InpSignalInterval = "1h";
 input bool   InpEnableAutoExecution = false; // OFF by default
 input double InpFixedLots = 0.01;
-input int    InpMaxOpenPositions = 1;
+input int    InpMaxOpenPositions = 3; // Account-wide NEXORA magic-number position cap
 input int    InpMaxPriceDeviationPoints = 500;
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
@@ -333,7 +333,12 @@ void ProcessSignal()
    }
    if(CountOurPositions()>=InpMaxOpenPositions)
    {
-      Print("NEXORA: maximum open position limit reached.");
+      Print("NEXORA: account-wide maximum of ",InpMaxOpenPositions," NEXORA positions reached.");
+      g_requestBusy=false; return;
+   }
+   if(IsOurPosition(_Symbol))
+   {
+      Print("NEXORA: an automatic position already exists on ",_Symbol,". Duplicate entry blocked.");
       g_requestBusy=false; return;
    }
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
