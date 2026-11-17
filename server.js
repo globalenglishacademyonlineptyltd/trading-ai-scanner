@@ -47,8 +47,9 @@ const LIVE_WATCHLIST = [
   { symbol: 'AAPL', name: 'Apple', market: 'shares' },
   { symbol: 'NVDA', name: 'NVIDIA', market: 'shares' }
 ];
-// A 30-minute cadence limits provider consumption while keeping a regular website refresh.
-const SCAN_INTERVAL_MS = 30 * 60 * 1000;
+// Signal refresh cadence is configurable for the connected provider plan; default is two minutes.
+// A provider quota/rate-limit response is surfaced as unavailable rather than replaced with sample data.
+const SCAN_INTERVAL_MS = Math.max(120000, Number(process.env.NEXORA_SCAN_INTERVAL_MS) || 120000);
 const NEWS_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const GLOBAL_NEWS_QUERY = 'global financial markets OR crude oil OR energy OR central banks OR inflation OR interest rates OR stocks OR bonds OR currencies OR commodities OR cryptocurrency';
 let globalNewsIntel = { items: [], source: 'Not loaded', lastUpdated: null, nextRefreshAt: null, stale: true, error: null };
@@ -465,7 +466,7 @@ async function route(req, res, url) {
   });
   if (p === '/api/scan/status') {
     if (!liveScan.lastUpdated) await runLiveScan(false);
-    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:30});
+    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:SCAN_INTERVAL_MS/60000});
   }
   if (p === '/api/market/search') {
     const q=url.searchParams.get('q')||'';
