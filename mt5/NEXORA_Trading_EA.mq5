@@ -474,15 +474,15 @@ void ProcessSignal(string symbol,ENUM_TIMEFRAMES timeframe)
    Print("NEXORA dual-engine confirmation: ",symbol," ",direction," candle score=",score," tick score=",tickScore);
    // Publish only after the closed-candle and independent live-tick engines agree.
    int publishDigits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
-   string publishPayload="{\\"symbol\\":\\""+symbol+"\\",";
-   publishPayload+="\\"interval\\":\\""+EnumToString(timeframe)+"\\",";
-   publishPayload+="\\"direction\\":\\""+direction+"\\",";
-   publishPayload+="\\"score\\":"+DoubleToString(score,0)+",";
-   publishPayload+="\\"tickScore\\":"+DoubleToString(tickScore,0)+",";
-   publishPayload+="\\"timestamp\\":\\""+signalTime+"\\",";
-   publishPayload+="\\"entry\\":"+DoubleToString(entry,publishDigits)+",";
-   publishPayload+="\\"stopLoss\\":"+DoubleToString(sl,publishDigits)+",";
-   publishPayload+="\\"takeProfit\\":"+DoubleToString(tp,publishDigits)+"}";
+   string publishPayload="{\"symbol\":\""+symbol+"\",";
+   publishPayload+=",\"interval\":\""+EnumToString(timeframe)+"\",";
+   publishPayload+=",\"direction\":\""+direction+"\",";
+   publishPayload+=",\"score\":"+DoubleToString(score,0)+",";
+   publishPayload+=",\"tickScore\":"+DoubleToString(tickScore,0)+",";
+   publishPayload+=",\"timestamp\":\""+signalTime+"\",";
+   publishPayload+=",\"entry\":"+DoubleToString(entry,publishDigits)+",";
+   publishPayload+=",\"stopLoss\":"+DoubleToString(sl,publishDigits)+",";
+   publishPayload+=",\"takeProfit\":"+DoubleToString(tp,publishDigits)+"}";
    string publishResponse;
    if(!HttpPostJson(TrimSlash(InpNexoraBaseUrl)+"/api/mt5/signal-publish",publishPayload,publishResponse))
       Print("NEXORA: signal is confirmed locally, but website publishing failed. ",g_lastStatus);
