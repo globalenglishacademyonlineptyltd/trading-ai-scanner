@@ -4,7 +4,8 @@
 //| Strategy source: NEXORA server /api/mt5/signal                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.00"
+#property version   "1.10"
+#define NEXORA_BUILD_ID "2026.11.17-5TF-INDIE-COOLDOWN-FIX"
 #property description "NEXORA signals and optional MT5 order execution"
 
 #include <Trade/Trade.mqh>
@@ -94,7 +95,7 @@ void AppendSignalHistory(string direction,double score,double entry,double sl,do
    FileWrite(handle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),_Symbol,EnumToString(g_activeTimeframe),
              direction,DoubleToString(score,1),DoubleToString(entry,_Digits),
              DoubleToString(sl,_Digits),DoubleToString(tp,_Digits),signalTime,
-              notificationSent?"YES - cooldown elapsed":"NO - 10 minute cooldown");
+              notificationSent?"YES - alert permitted":"NO - alert cooldown active");
    FileClose(handle);
 }
 
@@ -489,7 +490,9 @@ void ProcessSignal()
    panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
    panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
    panel+="\\nIndependent timeframe scan: "+interval+" | AUTO threshold: "+DoubleToString(InpMinimumAutoScore,0)+"/100";
+   panel+="\nBUILD: "+NEXORA_BUILD_ID;
    Comment(panel);
+   Print("NEXORA BUILD: ",NEXORA_BUILD_ID);
    Print("NEXORA | ",_Symbol," ",interval," | ",direction," ",DoubleToString(score,0),"/100",
          " | E ",DoubleToString(entry,_Digits),
          " SL ",DoubleToString(sl,_Digits),
@@ -534,7 +537,9 @@ void ProcessSignal()
       g_requestBusy=false;
       return;
    }
-   if(!newSignal) { g_requestBusy=false; return; }
+   // Do not suppress an unchanged but still-valid setup forever. The per-timeframe cooldown
+   // and existing-position check below prevent premature duplicate entries; after cooldown,
+   // the same setup may be traded again if it still passes all checks.
    double directionalStrength=(direction=="SELL")?100.0-score:score;
    if(directionalStrength<InpMinimumAutoScore)
    {
@@ -659,6 +664,9 @@ int OnInit()
    g_lastChartSymbol=_Symbol;
    g_lastChartPeriod=_Period;
    EventSetTimer(10); // Keep the backend heartbeat alive independently of signal checks.
+   Print("NEXORA BUILD ACTIVE: ",NEXORA_BUILD_ID," | auto=",InpEnableAutoExecution?"ON":"OFF",
+         " | scoreThreshold=",DoubleToString(InpMinimumAutoScore,0),
+         " | cooldownSeconds=",InpTradeCooldownSeconds);
    SendHeartbeat();
    for(int i=0;i<5;i++) { g_activeTimeframe=g_scanFrames[i]; ProcessSignal(); }
    g_activeTimeframe=_Period;
@@ -700,11 +708,20 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    long magic=(long)HistoryDealGetInteger(trans.deal,DEAL_MAGIC);
    long entry=(long)HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
    if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) return;
+   string symbol=HistoryDealGetString(trans.deal,DEAL_SYMBOL);
+   // A partial close is not the end of the trade. Start the cooldown only after
+   // the last position for this symbol/timeframe magic has fully disappeared.
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket>0 && PositionGetString(POSITION_SYMBOL)==symbol &&
+         PositionGetInteger(POSITION_MAGIC)==magic)
+         return;
+   }
    for(int i=0;i<5;i++)
    {
       long expectedMagic=InpMagicNumber+(long)g_scanFrames[i];
       if(magic!=expectedMagic) continue;
-      string symbol=HistoryDealGetString(trans.deal,DEAL_SYMBOL);
       string key="NEXORA_COOLDOWN_"+symbol+"_"+EnumToString(g_scanFrames[i]);
       datetime until=TimeCurrent()+MathMax(0,InpTradeCooldownSeconds);
       GlobalVariableSet(key,(double)until);
