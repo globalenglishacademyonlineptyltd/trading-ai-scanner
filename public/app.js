@@ -413,7 +413,7 @@ async function loadNews(automatic=false){
     const r=await fetch(endpoint,{cache:'no-store'});
     const data=await r.json();if(!r.ok)throw new Error(data.error||'News request failed');
     const items=data.items||[];
-    out.innerHTML=items.length?items.map(a=>'<div class="opp"><div class="instrument"><a href="'+escapeHtml(a.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(a.title)+'</a><small>'+escapeHtml(a.source)+' · '+escapeHtml(a.publishedAt||'Publication time unavailable')+'</small></div><div class="muted">News</div></div>').join(''):'<p class="muted">No matching articles were returned.</p>';
+    out.innerHTML=items.length?items.map(a=>'<article class="news-card"><a class="news-card-title" href="'+escapeHtml(a.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(a.title)+'</a><div class="news-card-meta"><span>'+escapeHtml(a.source||'News source')+'</span><time>'+escapeHtml(a.publishedAt||'Publication time unavailable')+'</time></div></article>').join(''):'<p class="muted">No matching articles were returned.</p>';
     $('newsUpdated').textContent=(data.source||'News feed')+' · Updated '+(data.retrievedAt?new Date(data.retrievedAt).toLocaleString():'time unavailable')+(data.stale?' · STALE':'')+(data.nextRefreshAt?' · Next refresh '+new Date(data.nextRefreshAt).toLocaleTimeString():'');
   }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
   finally{if(!automatic){button.disabled=false;button.textContent='Load news';}}
