@@ -6,6 +6,8 @@ const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'
 let scanRefreshTimer=null;
 let newsAutoRefreshTimer=null;
 const NEWS_AUTO_REFRESH_MS=2*60*60*1000;
+let newsAutoRefreshTimer=null;
+const NEWS_AUTO_REFRESH_MS=2*60*60*1000;
 let latestScan=null;
 function renderLiveScan(data){
   latestScan=data;
@@ -356,10 +358,11 @@ async function analyzeLiveMarket(){
 }
 async function loadNews(automatic=false){
   const button=$('loadNews'),out=$('newsFeed');
-  button.disabled=true;button.textContent='Loading…';
+  if(!automatic){button.disabled=true;button.textContent='Loading…';}
   try{
-    const q=$('newsQuery').value.trim()||'markets OR finance';
-    const r=await fetch('/api/news?q='+encodeURIComponent(q),{cache:'no-store'});
+    const q=$('newsQuery').value.trim();
+    const endpoint=q?'/api/news?q='+encodeURIComponent(q):'/api/news';
+    const r=await fetch(endpoint,{cache:'no-store'});
     const data=await r.json();if(!r.ok)throw new Error(data.error||'News request failed');
     const items=data.items||[];
     out.innerHTML=items.length?items.map(a=>'<div class="opp"><div class="instrument"><a href="'+escapeHtml(a.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(a.title)+'</a><small>'+escapeHtml(a.source)+' · '+escapeHtml(a.publishedAt||'Publication time unavailable')+'</small></div><div class="muted">News</div></div>').join(''):'<p class="muted">No matching articles were returned.</p>';
@@ -376,4 +379,6 @@ $('symbolMatches').addEventListener('change',()=>{const symbol=$('symbolMatches'
 $('liveSymbol').addEventListener('change',()=>{$('planSymbol').value=$('liveSymbol').value;});
 loadIntelligenceStatus();
 loadNews();
+if(newsAutoRefreshTimer)clearInterval(newsAutoRefreshTimer);
+newsAutoRefreshTimer=setInterval(()=>loadNews(true),NEWS_AUTO_REFRESH_MS);
 startLiveScanRefresh();
