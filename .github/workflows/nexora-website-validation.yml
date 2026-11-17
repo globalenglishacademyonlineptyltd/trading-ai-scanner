@@ -83,6 +83,10 @@ jobs:
           assert.match(html, /id="marketCatalysts"/);
           assert.match(html, /Signal refresh: every 2 minutes/);
           assert.match(ea, /InpEnableAutoExecution\s*=\s*false/);
+          assert.match(ea, /StringLen\(InpConnectorToken\)<32/);
+          assert.match(ea, /EventSetTimer\(15\)/);
+          assert.match(ea, /TimeCurrent\(\)-g_lastHeartbeat>=30/);
+          assert.match(ea, /TimeCurrent\(\)-g_lastScan>=MathMax\(120,InpPollSeconds\)/);
           assert.match(ea, /ACCOUNT_TRADE_MODE_DEMO/);
           assert.match(ea, /automatic execution is demo-account only/);
           assert.match(ea, /InpRiskPerTradePercent\s*=\s*1\.0/);
