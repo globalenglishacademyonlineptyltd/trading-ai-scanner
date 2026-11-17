@@ -6,8 +6,6 @@ const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'
 let scanRefreshTimer=null;
 let newsAutoRefreshTimer=null;
 const NEWS_AUTO_REFRESH_MS=2*60*60*1000;
-let newsAutoRefreshTimer=null;
-const NEWS_AUTO_REFRESH_MS=2*60*60*1000;
 let latestScan=null;
 function renderLiveScan(data){
   latestScan=data;
@@ -340,7 +338,7 @@ async function analyzeLiveMarket(){
   try{
     const r=await fetch('/api/signals?symbol='+encodeURIComponent(symbol)+'&interval='+encodeURIComponent(interval),{cache:'no-store'});
     const data=await r.json();if(!r.ok)throw new Error(data.error||'Analysis failed');
-    const i=data.indicators||{},p=data.plan;
+    const i=data.indicators||{},p=data.plan,v=data.volume||{};
     out.innerHTML='<div class="result-grid">'+
       '<div class="result-tile"><span>Instrument</span><strong>'+escapeHtml(data.symbol)+'</strong></div>'+
       '<div class="result-tile"><span>Decision</span><strong>'+escapeHtml(data.direction)+'</strong></div>'+
@@ -351,7 +349,9 @@ async function analyzeLiveMarket(){
       '<div class="result-tile"><span>EMA 20 / EMA 50</span><strong>'+fmt(i.ema20)+' / '+fmt(i.ema50)+'</strong></div>'+
       '<div class="result-tile"><span>Momentum</span><strong>'+fmt(i.momentumPercent,3)+'%</strong></div>'+
       (p?'<div class="result-tile"><span>Indicative entry</span><strong>'+fmt(p.entry)+'</strong></div><div class="result-tile"><span>Indicative stop-loss</span><strong>'+fmt(p.stopLoss)+'</strong></div><div class="result-tile"><span>Indicative take-profit</span><strong>'+fmt(p.takeProfit)+'</strong></div><div class="result-tile"><span>Risk / reward</span><strong>1 : '+fmt(p.riskReward,2)+'</strong></div>':'')+
+      '<div class="result-tile"><span>Latest volume</span><strong>'+(v.available?fmt(v.volume):'Unavailable')+'</strong></div><div class="result-tile"><span>Relative volume vs 20 bars</span><strong>'+(v.relativeVolume20===null||v.relativeVolume20===undefined?'—':fmt(v.relativeVolume20,2)+'×')+'</strong></div><div class="result-tile"><span>Volume reading</span><strong>'+escapeHtml(v.intensity||'Not available')+'</strong></div>'+
       '</div><p class="notice">'+escapeHtml(data.decision)+'</p><p class="muted">Source: '+escapeHtml(data.source)+' · '+escapeHtml(data.interval)+' · Candle: '+escapeHtml(data.timestamp||'unknown')+'</p>'+
+      '<p class="notice">'+escapeHtml(v.interpretation||'Volume interpretation unavailable.')+' '+escapeHtml(v.warning||'')+'</p>'+
       '<ul class="checks">'+(data.warnings||[]).map(w=>'<li>'+escapeHtml(w)+'</li>').join('')+'</ul>';
   }catch(e){out.innerHTML='<p class="form-error">'+escapeHtml(e.message)+'</p>';}
   finally{button.disabled=false;button.textContent='Analyse live market';}
