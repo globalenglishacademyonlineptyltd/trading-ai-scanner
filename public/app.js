@@ -65,7 +65,7 @@ async function refreshMt5VolumeOverlay(){
       if(!response.ok)return;
       const data=await response.json();
       const observations=data.observations||[];
-      const fresh=observations.find(item=>item.available&&item.lastCandleAt&&Date.now()-Date.parse(item.lastCandleAt)<15*60*1000);
+      const fresh=observations.find(item=>item.available&&item.updatedAt&&Date.now()-Date.parse(item.updatedAt)<15*60*1000);
       if(!fresh)return;
       row.textContent='MT5 terminal-reported volume '+fmt(fresh.volume)+' · '+(fresh.relativeVolume20===null?'relative comparison unavailable':fmt(fresh.relativeVolume20,2)+'× 20-bar average')+' · '+(fresh.intensity||'');
       const interpretation=row.parentElement?.querySelector('.volume-interpretation');
