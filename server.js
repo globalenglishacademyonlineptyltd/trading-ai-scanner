@@ -199,6 +199,36 @@ function rsi(values, period = 14) {
   const rs = (gains / period) / (losses / period);
   return 100 - (100 / (1 + rs));
 }
+function analyseTickStream(symbol,ticks,digits){
+  const mids=ticks.map(t=>(t.bid+t.ask)/2);
+  const fast=ema(mids,20).at(-1), slow=ema(mids,50).at(-1);
+  const changes=mids.slice(1).map((v,i)=>v-mids[i]).slice(-30);
+  const gains=changes.reduce((a,v)=>a+Math.max(0,v),0);
+  const losses=changes.reduce((a,v)=>a+Math.max(0,-v),0);
+  const rsiValue=gains+losses===0?50:100*gains/(gains+losses);
+  const last=mids.at(-1), prior=mids.at(-2);
+  const momentum=prior?(last-prior)/prior*100:0;
+  const mean=changes.reduce((a,v)=>a+Math.abs(v),0)/Math.max(1,changes.length);
+  const recent=mids.slice(-30);
+  const range=Math.max(...recent)-Math.min(...recent);
+  const volatility=Math.max(mean*8,range*.35,last*.00015);
+  let score=50+(fast>slow?18:fast<slow?-18:0)+(last>fast?10:-10);
+  score+=momentum>0?Math.min(8,momentum*300):Math.max(-8,momentum*300);
+  score+=rsiValue>54&&rsiValue<72?8:rsiValue<46&&rsiValue>28?-8:0;
+  score=Math.max(0,Math.min(100,Math.round(score)));
+  const direction=score>=68?'BUY':score<=32?'SELL':'WAIT';
+  const entry=last, distance=volatility*2;
+  const stopLoss=direction==='BUY'?entry-distance:direction==='SELL'?entry+distance:null;
+  const takeProfit=direction==='BUY'?entry+distance*2:direction==='SELL'?entry-distance*2:null;
+  return {symbol,direction,score,timestamp:new Date(ticks.at(-1).timeMsc).toISOString(),
+    entry:stopLoss===null?null:Number(entry.toFixed(digits)),
+    stopLoss:stopLoss===null?null:Number(stopLoss.toFixed(digits)),
+    takeProfit:takeProfit===null?null:Number(takeProfit.toFixed(digits)),
+    source:'MT5 live bid/ask ticks',
+    indicators:{ema20:fast,ema50:slow,rsi30TickChanges:rsiValue,momentumPercent:momentum,rollingVolatility:volatility},
+    warnings:['Tick-driven; no chart timeframe is used.','Technical score is not a win probability.','News, spread and event risk are not included.']};
+}
+
 function analyseSeries(series) {
   const c = series.candles;
   const closes = c.map(x => x.close);
@@ -356,6 +386,23 @@ async function route(req, res, url) {
     if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
     const fresh = !!mt5LastHeartbeat && Date.now() - Date.parse(mt5LastHeartbeat.receivedAt) < 60000;
     return send(res, 200, { connected: fresh && mt5LastHeartbeat.connected, heartbeat: fresh ? mt5LastHeartbeat : null, mode: 'MT5-EA', automaticTrading: 'controlled-in-terminal' });
+  }
+  if (p === '/api/mt5/signal-ticks' && req.method === 'POST') {
+    if (!requireMt5Token(req)) return send(res,401,{error:'MT5 connector authentication failed or server token is not configured.'});
+    let raw=''; for await (const chunk of req) { raw+=chunk; if(raw.length>131072) return send(res,413,{error:'Tick payload too large.'}); }
+    let body; try { body=JSON.parse(raw||'{}'); } catch { return send(res,400,{error:'Invalid JSON tick payload.'}); }
+    const symbol=String(body.chartSymbol||'').trim();
+    const digits=Number.isInteger(body.digits)&&body.digits>=0&&body.digits<=10?body.digits:5;
+    if(!symbol||symbol.length>100||!Array.isArray(body.ticks)||body.ticks.length<60||body.ticks.length>300)
+      return send(res,400,{error:'Expected 60-300 recent MT5 ticks.'});
+    const now=Date.now();
+    const ticks=body.ticks.map(t=>({timeMsc:Number(t.timeMsc),bid:safeNumber(t.bid),ask:safeNumber(t.ask)}))
+      .filter(t=>Number.isFinite(t.timeMsc)&&t.timeMsc>now-900000&&t.timeMsc<=now+5000&&t.bid!==null&&t.ask!==null&&t.bid>0&&t.ask>=t.bid&&t.ask/t.bid<1.05)
+      .sort((a,b)=>a.timeMsc-b.timeMsc);
+    if(ticks.length<60) return send(res,400,{error:'Fewer than 60 valid recent bid/ask ticks.'});
+    const result=analyseTickStream(symbol,ticks,digits);
+    console.info('NEXORA tick analysis',{symbol,count:ticks.length,direction:result.direction,score:result.score});
+    return send(res,200,result);
   }
   if (p === '/api/mt5/signal-local' && req.method === 'POST') {
     if (!requireMt5Token(req)) return send(res, 401, { error: 'MT5 connector authentication failed or server token is not configured.' });
