@@ -418,7 +418,7 @@ async function route(req, res, url) {
   });
   if (p === '/api/scan/status') {
     if (!liveScan.lastUpdated) await runLiveScan(false);
-    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:15});
+    return send(res,200,{...liveScan,watchlist:LIVE_WATCHLIST.map(x=>({symbol:x.symbol,name:x.name,market:x.market})),refreshIntervalMinutes:30});
   }
   if (p === '/api/market/search') {
     const q=url.searchParams.get('q')||'';
