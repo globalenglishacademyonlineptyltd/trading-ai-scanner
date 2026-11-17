@@ -81,7 +81,7 @@ async function refreshLiveScan(){
 function startLiveScanRefresh(){
   refreshLiveScan();
   if(scanRefreshTimer) clearInterval(scanRefreshTimer);
-  scanRefreshTimer=setInterval(refreshLiveScan,30000);
+  scanRefreshTimer=setInterval(refreshLiveScan,120000);
 }
 function addMessage(text,type){
   const el=document.createElement('div');el.className=`message ${type}`;el.textContent=text;$('messages').appendChild(el);$('messages').scrollTop=$('messages').scrollHeight;
