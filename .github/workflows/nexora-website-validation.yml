@@ -153,15 +153,19 @@ jobs:
           $editorProcess = Start-Process -FilePath $editor.FullName -ArgumentList $arguments -PassThru
 
           $logPath = [System.IO.Path]::ChangeExtension($source, '.log')
-          $deadline = (Get-Date).AddSeconds(60)
-          while (-not (Test-Path $logPath) -and (Get-Date) -lt $deadline) {
+          $deadline = (Get-Date).AddSeconds(120)
+          $compileLog = ''
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path $logPath) {
+              $compileLog = Get-Content -Path $logPath -Raw
+              if ($compileLog -match 'Result:') { break }
+            }
             Start-Sleep -Seconds 2
           }
-          if (-not (Test-Path $logPath)) {
+          if ($compileLog -notmatch 'Result:') {
             Get-Process -Name 'MetaEditor64' -ErrorAction SilentlyContinue | Stop-Process -Force
-            throw "MetaEditor did not create the expected compile log: $logPath"
+            throw "MetaEditor did not finish compilation within 120 seconds. Latest log: $compileLog"
           }
-          $compileLog = Get-Content -Path $logPath -Raw
           Get-Process -Name 'MetaEditor64' -ErrorAction SilentlyContinue | Stop-Process -Force
           Write-Host $compileLog
           $result = [regex]::Match($compileLog, 'Result:\s*(\d+)\s+errors?,\s*(\d+)\s+warnings?')
