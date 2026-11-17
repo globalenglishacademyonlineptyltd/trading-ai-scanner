@@ -456,7 +456,8 @@ async function route(req, res, url) {
   if (p === '/api/signals') {
     const symbol=url.searchParams.get('symbol'); if(!symbol) return send(res,400,{error:'symbol is required'});
     const series=await getSeries(symbol,url.searchParams.get('interval')||'1h',100);
-    return send(res,200,analyseSeries(series));
+    const analysis=analyseSeries(series);
+    return send(res,200,{...analysis,volume:analyseVolume(series),relatedHeadlines:matchNewsToInstrument(symbol,globalNewsIntel.items)});
   }
   return send(res,404,{error:'API route not found.'});
 }
