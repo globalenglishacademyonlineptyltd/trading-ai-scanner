@@ -18,7 +18,8 @@ input string InpSignalInterval = "1h";
 input bool   InpEnableAutoExecution = false; // OFF by default
 input double InpRiskPercent = 1.0; // Risk budget as % of account equity, calculated from entry-to-stop loss
 input int    InpMaxOpenPositions = 5; // Up to one independently managed position per timeframe
-input int    InpMaxPriceDeviationPoints = 500;
+input int    InpMaxPriceDeviationPoints = 500; // Minimum tolerance; also bounded by signal stop distance
+input double InpMinimumExecutionRR = 1.5; // Do not chase if live quote reduces reward/risk below this
 input int    InpTrailingStopPoints = 300;
 input int    InpTrailingStepPoints = 50;
 input int    InpPollSeconds = 120; // Refresh signals every 2 minutes
@@ -588,19 +589,42 @@ void ProcessSignal()
       Print("NEXORA: signal has no valid entry/SL/TP. No order sent.");
       g_requestBusy=false; return;
    }
-   if(MathAbs(current-entry)/point>InpMaxPriceDeviationPoints)
+   // Signals are based on the last fully closed candle. Permit ordinary movement
+   // since that close, but cap it at the greater of the configured floor or 25% of
+   // the original stop distance. This scales appropriately across timeframes.
+   double allowedDeviation=MathMax(InpMaxPriceDeviationPoints*point,riskDistance*0.25);
+   double liveDeviation=MathAbs(current-entry);
+   if(liveDeviation>allowedDeviation)
    {
-      Print("NEXORA: price moved beyond configured deviation. No order sent.");
+      Print("NEXORA AUTO BLOCK: quote moved too far from signal close. ",_Symbol," ",interval,
+            " | signal entry=",DoubleToString(entry,digits),
+            " live quote=",DoubleToString(current,digits),
+            " deviation=",DoubleToString(liveDeviation,digits),
+            " allowed=",DoubleToString(allowedDeviation,digits),". No order sent.");
       g_requestBusy=false; return;
    }
    if(direction=="BUY" && !(sl<current && tp>current))
    {
-      Print("NEXORA: BUY stop/target invalid for current price.");
+      Print("NEXORA AUTO BLOCK: BUY levels no longer valid at live quote. quote=",
+            DoubleToString(current,digits)," SL=",DoubleToString(sl,digits),
+            " TP=",DoubleToString(tp,digits),". No order sent.");
       g_requestBusy=false; return;
    }
    if(direction=="SELL" && !(sl>current && tp<current))
    {
-      Print("NEXORA: SELL stop/target invalid for current price.");
+      Print("NEXORA AUTO BLOCK: SELL levels no longer valid at live quote. quote=",
+            DoubleToString(current,digits)," SL=",DoubleToString(sl,digits),
+            " TP=",DoubleToString(tp,digits),". No order sent.");
+      g_requestBusy=false; return;
+   }
+   double liveRisk=(direction=="BUY")?current-sl:sl-current;
+   double liveReward=(direction=="BUY")?tp-current:current-tp;
+   double liveRR=(liveRisk>0)?liveReward/liveRisk:0;
+   if(liveRisk<=0 || liveReward<=0 || liveRR<InpMinimumExecutionRR)
+   {
+      Print("NEXORA AUTO BLOCK: live reward/risk too low. ",_Symbol," ",interval,
+            " | live RR=",DoubleToString(liveRR,2),
+            " required=",DoubleToString(InpMinimumExecutionRR,2),". No order sent.");
       g_requestBusy=false; return;
    }
    long stopLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
@@ -657,7 +681,7 @@ void ProcessSignal()
 }
 int OnInit()
 {
-   if(InpRiskPercent<=0.0 || InpRiskPercent>5.0 || InpMinimumAutoScore<0.0 || InpMinimumAutoScore>100.0 || InpTradeCooldownSeconds<0)
+   if(InpRiskPercent<=0.0 || InpRiskPercent>5.0 || InpMinimumAutoScore<0.0 || InpMinimumAutoScore>100.0 || InpTradeCooldownSeconds<0 || InpMinimumExecutionRR<1.0 || InpMinimumExecutionRR>5.0)
    {
       Print("NEXORA SAFETY BLOCK: risk percentage must be greater than 0 and no more than 5%.");
       return INIT_PARAMETERS_INCORRECT;
