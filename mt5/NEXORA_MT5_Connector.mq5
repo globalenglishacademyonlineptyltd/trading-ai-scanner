@@ -4,8 +4,8 @@
 //| Strategy source: NEXORA server /api/mt5/signal                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.10"
-#define NEXORA_BUILD_ID "2026.11.17-5TF-INDIE-COOLDOWN-FIX"
+#property version   "1.11"
+#define NEXORA_BUILD_ID "2026.11.17-5TF-INDEPENDENT-OVERVIEW-FIX"
 #property description "NEXORA signals and optional MT5 order execution"
 
 #include <Trade/Trade.mqh>
@@ -32,6 +32,7 @@ string g_lastSignalKeys[5];
 ENUM_TIMEFRAMES g_activeTimeframe=PERIOD_M5;
 ENUM_TIMEFRAMES g_scanFrames[5]={PERIOD_M5,PERIOD_M15,PERIOD_M30,PERIOD_H1,PERIOD_H4};
 string g_scanLabels[5]={"M5","M15","M30","H1","H4"};
+string g_timeframeStatus[5];
 string g_connectorToken = "";
 ulong g_nextSignalCheckMs = 0;
 const string NEXORA_TOKEN_FILE = "NEXORA_MT5_Connector.token";
@@ -110,6 +111,19 @@ string CurrentChartInterval()
 {
    return EnumToString(g_activeTimeframe);
 }
+void RenderTimeframeOverview()
+{
+   string panel="NEXORA | FIVE INDEPENDENT TIMEFRAMES\n";
+   panel+="Symbol: "+_Symbol+" | Updated: "+TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS)+"\n";
+   for(int i=0;i<5;i++)
+      panel+=g_timeframeStatus[i]+"\n";
+   panel+="Auto: "+(InpEnableAutoExecution?"ON":"OFF")+
+          " | Minimum strength: "+DoubleToString(InpMinimumAutoScore,0)+
+          " | Risk per trade: "+DoubleToString(InpRiskPercent,2)+"%"+
+          " | Cooldown: "+IntegerToString(InpTradeCooldownSeconds)+" sec\n";
+   panel+="BUILD: "+NEXORA_BUILD_ID;
+   Comment(panel);
+}
 // Detect symbol/timeframe changes on this chart and discard the previous chart's signal state.
 bool RefreshChartContext()
 {
@@ -118,6 +132,7 @@ bool RefreshChartContext()
    g_lastChartSymbol=_Symbol;
    g_lastChartPeriod=_Period;
    g_lastSignalKey="";
+   for(int i=0;i<5;i++) g_timeframeStatus[i]=g_scanLabels[i]+": Loading fresh data...";
    g_lastStatus="Loading fresh MT5 data for "+_Symbol+" ("+CurrentChartInterval()+")";
    Print("NEXORA chart context changed: ",previousSymbol," -> ",_Symbol,
          ", timeframe=",CurrentChartInterval(),". Previous signal state cleared.");
@@ -442,10 +457,9 @@ void ProcessSignal()
    if(timeframeIndex<0) { g_requestBusy=false; return; }
    if(direction!="BUY" && direction!="SELL")
    {
-      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA TIMEFRAME SIGNAL\nInstrument: ",_Symbol," | Timeframe: ",interval,
-              "\nSignal: WAIT | Technical score: ",DoubleToString(score,0),"/100",
-              "\nAnalysed closed candle: ",signalTime,
-              "\nNo trade proposed. Entry, stop loss and take profit are not applicable to WAIT.");
+      g_timeframeStatus[timeframeIndex]=g_scanLabels[timeframeIndex]+": WAIT "+
+         DoubleToString(score,0)+"/100 | no trade proposed";
+      RenderTimeframeOverview();
       Print("NEXORA | ",_Symbol," ",interval," | WAIT ",DoubleToString(score,0),"/100",
             " | E -- SL -- TP -- | NO TRADE");
       g_requestBusy=false; return;
@@ -456,6 +470,7 @@ void ProcessSignal()
    double avgRange=(riskDistance>0)?riskDistance/1.5:0;
    double rewardDistance=(entry>0 && tp>0)?MathAbs(tp-entry):0;
    double rr=(riskDistance>0)?rewardDistance/riskDistance:0;
+   double directionalStrength=(direction=="SELL")?100.0-score:score;
    string planRejectReason="";
    if(direction!="BUY" && direction!="SELL") planRejectReason="direction is not BUY or SELL";
    else if(!MathIsValidNumber(entry) || entry<=0) planRejectReason="entry missing or not numeric";
@@ -466,6 +481,11 @@ void ProcessSignal()
    else if(direction=="SELL" && sl<=entry) planRejectReason="SELL stop loss must be above entry";
    else if(direction=="SELL" && tp>=entry) planRejectReason="SELL take profit must be below entry";
    bool validPlan=(planRejectReason=="");
+   if(validPlan)
+      g_timeframeStatus[timeframeIndex]=g_scanLabels[timeframeIndex]+": "+direction+" | Score "+DoubleToString(score,0)+"/100 | Strength "+DoubleToString(directionalStrength,0)+"/100 | E "+DoubleToString(entry,_Digits)+" SL "+DoubleToString(sl,_Digits)+" TP "+DoubleToString(tp,_Digits);
+   else
+      g_timeframeStatus[timeframeIndex]=g_scanLabels[timeframeIndex]+": INVALID PLAN - "+planRejectReason;
+   RenderTimeframeOverview();
    if(validPlan)
       Print("NEXORA PLAN ACCEPTED: ",_Symbol," ",interval," ",direction,
             " | E ",DoubleToString(entry,_Digits)," SL ",DoubleToString(sl,_Digits),
@@ -479,26 +499,6 @@ void ProcessSignal()
             " | parsed E=",DoubleToString(entry,_Digits),
             " SL=",DoubleToString(sl,_Digits)," TP=",DoubleToString(tp,_Digits),
             " | JSON=",json);
-   double trailActivation=0;
-   if(validPlan) trailActivation=(direction=="BUY")?entry+riskDistance:entry-riskDistance;
-   string panel="NEXORA UPDATE | "+g_lastRefreshText+"\n";
-   panel+="NEXORA TRADE PLAN\n";
-   panel+="Instrument: "+_Symbol+" | Timeframe: "+interval+"\n";
-   panel+="Signal: "+direction+" | Technical score: "+DoubleToString(score,0)+"/100\n";
-   panel+="Analysed closed candle: "+signalTime+"\n";
-   panel+="Entry: "+(validPlan?DoubleToString(entry,_Digits):"NOT AVAILABLE")+"\n";
-   panel+="Stop loss: "+(validPlan?DoubleToString(sl,_Digits):"NOT AVAILABLE")+"\n";
-   panel+="Take profit: "+(validPlan?DoubleToString(tp,_Digits):"NOT AVAILABLE")+"\n";
-   panel+="Risk distance: "+(validPlan?DoubleToString(riskDistance,_Digits):"N/A")+" | Reward/Risk: "+(validPlan?DoubleToString(rr,2):"N/A")+"\n";
-   panel+="Trailing stop: start after +1R at "+(validPlan?DoubleToString(trailActivation,_Digits):"N/A")+"\n";
-   panel+="Trailing distance: "+IntegerToString(InpTrailingStopPoints)+" points; activation after +1R\n";
-   panel+="Method: EMA20/EMA50 + RSI14 + momentum | closed candles only\n";
-   panel+="Auto position sizing: "+DoubleToString(InpRiskPercent,2)+"% equity risk; calculated against stop loss when auto mode is enabled\n";
-   panel+=InpEnableAutoExecution?"AUTOMATIC MODE - currently configured; demo testing only":"MANUAL MODE - no order will be placed";
-   panel+="\nIndependent timeframe scan: "+interval+" | AUTO threshold: "+DoubleToString(InpMinimumAutoScore,0)+"/100";
-   panel+="\nBUILD: "+NEXORA_BUILD_ID;
-   Comment(panel);
-   Print("NEXORA BUILD: ",NEXORA_BUILD_ID);
    Print("NEXORA | ",_Symbol," ",interval," | ",direction," ",DoubleToString(score,0),"/100",
          " | E ",DoubleToString(entry,_Digits),
          " SL ",DoubleToString(sl,_Digits),
@@ -508,10 +508,7 @@ void ProcessSignal()
    // Independent timeframe mode: no cross-timeframe agreement gate.\n   if(!validPlan)
    {
       g_lastStatus="INVALID TRADE PLAN - levels failed validation";
-      Comment("NEXORA UPDATE | ",g_lastRefreshText,"\nNEXORA SAFETY WARNING\n",_Symbol," | ",interval,"\nSignal: ",direction,
-              " | Score: ",DoubleToString(score,0),"/100",
-              "\nEntry/SL/TP levels are invalid or incomplete. Do not trade.",
-              "\nAnalysed candle: ",signalTime);
+      RenderTimeframeOverview();
       Print("NEXORA | ",_Symbol," ",interval," | REJECTED INVALID PLAN: ",planRejectReason,
             " | E ",DoubleToString(entry,_Digits),
             " SL ",DoubleToString(sl,_Digits),
@@ -546,7 +543,6 @@ void ProcessSignal()
    // Do not suppress an unchanged but still-valid setup forever. The per-timeframe cooldown
    // and existing-position check below prevent premature duplicate entries; after cooldown,
    // the same setup may be traded again if it still passes all checks.
-   double directionalStrength=(direction=="SELL")?100.0-score:score;
    if(directionalStrength<InpMinimumAutoScore)
    {
       Print("NEXORA AUTO BLOCK: ",_Symbol," ",interval," directional strength ",DoubleToString(directionalStrength,1),
@@ -693,6 +689,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    trade.SetExpertMagicNumber(InpMagicNumber);
+   for(int i=0;i<5;i++) g_timeframeStatus[i]=g_scanLabels[i]+": Waiting for first scan";
+   RenderTimeframeOverview();
    g_lastChartSymbol=_Symbol;
    g_lastChartPeriod=_Period;
    EventSetTimer(10); // Keep the backend heartbeat alive independently of signal checks.
