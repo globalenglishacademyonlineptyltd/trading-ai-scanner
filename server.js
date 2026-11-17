@@ -487,7 +487,7 @@ async function route(req, res, url) {
       .filter(item => item.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') === requested)
       .map(item => {
         const result = analyseVolume({ candles: item.candles });
-        return { ...result, symbol:item.symbol, interval:item.interval, source:'MT5 terminal-reported volume',
+        return { ...result, volumeType:'MT5 terminal-reported volume; broker feed only, not consolidated market volume', symbol:item.symbol, interval:item.interval, source:'MT5 terminal-reported volume',
           updatedAt:item.updatedAt, lastCandleAt:item.candles.at(-1)?.time || null };
       })
       .sort((a,b) => Date.parse(b.lastCandleAt || 0)-Date.parse(a.lastCandleAt || 0));
