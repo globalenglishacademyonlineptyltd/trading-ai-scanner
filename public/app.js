@@ -31,10 +31,11 @@ function renderLiveScan(data){
     catalystPanel.innerHTML=live.map(x=>{
       const v=x.volume||{};
       const volumeText=v.available
-        ? 'Volume '+fmt(v.volume)+' · '+(v.relativeVolume20===null?'relative comparison unavailable':fmt(v.relativeVolume20,2)+'× 20-bar average')+' · '+escapeHtml(v.intensity||'')
-        : 'Volume unavailable: '+escapeHtml(v.explanation||'provider did not supply enough observations');
+        ? 'Provider volume '+fmt(v.volume)+' · '+(v.relativeVolume20===null?'relative comparison unavailable':fmt(v.relativeVolume20,2)+'× 20-bar average')+' · '+escapeHtml(v.intensity||'')
+        : 'Provider volume unavailable: '+escapeHtml(v.explanation||'not enough usable observations');
       const headlines=(x.relatedHeadlines||[]).map(h=>'<li><a href="'+escapeHtml(h.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(h.title)+'</a><small>'+escapeHtml(h.source||'News source')+' · topic match only</small></li>').join('');
-      return '<div class="opp catalyst-item"><div class="instrument">'+escapeHtml(x.symbol)+'<small>'+escapeHtml(x.name||x.market||'Instrument')+'</small></div><div class="muted">'+volumeText+'</div><div class="muted">'+escapeHtml(v.interpretation||'No volume interpretation available.')+'</div><div class="muted">'+(headlines?'<ul>'+headlines+'</ul>':'No matching headline found in the current news cache.')+'</div></div>';
+      const interpretation=v.interpretation||'No provider volume interpretation was supplied. No conclusion is made.';
+      return '<div class="opp catalyst-item"><div class="instrument">'+escapeHtml(x.symbol)+'<small>'+escapeHtml(x.name||x.market||'Instrument')+'</small></div><div class="muted volume-reading" data-symbol="'+escapeHtml(x.symbol)+'">'+volumeText+'</div><div class="muted volume-interpretation">'+escapeHtml(interpretation)+'</div><div class="muted">'+(headlines?'<ul>'+headlines+'</ul>':'No matching headline found in the current news cache.')+'</div></div>';
     }).join('');
   }
   const top=[...live].sort((x,y)=>y.score-x.score)[0];
@@ -54,6 +55,23 @@ function renderLiveScan(data){
   $('scanConnection').textContent=live.length+' of '+rows.length+' instruments returned live data';
   $('topScanStatus').textContent='Live provider data · '+live.length+' instruments';
   $('topScanUpdated').textContent='Updated '+stamp;
+  refreshMt5VolumeOverlay();
+}
+async function refreshMt5VolumeOverlay(){
+  const rows=[...document.querySelectorAll('.volume-reading[data-symbol]')];
+  await Promise.all(rows.map(async row=>{
+    try{
+      const response=await fetch('/api/mt5/volume?symbol='+encodeURIComponent(row.dataset.symbol),{cache:'no-store'});
+      if(!response.ok)return;
+      const data=await response.json();
+      const observations=data.observations||[];
+      const fresh=observations.find(item=>item.available&&item.lastCandleAt&&Date.now()-Date.parse(item.lastCandleAt)<15*60*1000);
+      if(!fresh)return;
+      row.textContent='MT5 terminal-reported volume '+fmt(fresh.volume)+' · '+(fresh.relativeVolume20===null?'relative comparison unavailable':fmt(fresh.relativeVolume20,2)+'× 20-bar average')+' · '+(fresh.intensity||'');
+      const interpretation=row.parentElement?.querySelector('.volume-interpretation');
+      if(interpretation)interpretation.textContent=(fresh.interpretation||'No MT5 volume interpretation available.')+' Source: MT5 '+fresh.interval+' candles. Broker feed only; not total market-wide volume.';
+    }catch{/* Keep the provider reading visible if the MT5 overlay is unavailable. */}
+  }));
 }
 async function refreshLiveScan(){
   try{
