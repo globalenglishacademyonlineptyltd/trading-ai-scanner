@@ -55,9 +55,9 @@
       <div class="planner-actions"><button class="primary" id="analyzeLive">Analyse live market</button><button class="secondary" id="refreshIntelligence">Refresh connection status</button></div>
       <div id="liveAnalysis" class="plan-results"><div class="result-placeholder">Enter a supported provider symbol and request an analysis.</div></div>
       <div class="section-head"><div><span class="label">GLOBAL FINANCIAL NEWS</span><h2>News intelligence feed</h2></div><span class="muted" id="newsUpdated">Not loaded</span></div>
-      <div class="chat-input"><input id="newsQuery" value="markets OR finance OR central bank OR inflation" /><button id="loadNews">Load news</button></div>
+      <div class="chat-input"><input id="newsQuery" value="" placeholder="Optional topic filter; leave blank for global automatic feed" /><button id="loadNews">Load news</button></div>
       <div id="newsFeed" class="opportunity-list"><p class="muted">News will appear here when the feed is available.</p></div>
-      <p class="notice">News uses GDELT with a Google News RSS fallback if the primary feed is rate-limited. Headlines are context, not verified trading signals.</p>
+      <p class="notice">Global news refreshes automatically every two hours using GDELT with Google News RSS fallback. Leave the topic filter blank to view the global feed; use it to request a focused topic. Headlines are evidence to investigate, not proof of causation or verified trading signals.</p>
     </section>
 
     <section class="card">
