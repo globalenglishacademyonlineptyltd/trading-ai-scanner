@@ -99,9 +99,19 @@ void SendCandleContext(){
  Print("NEXORA candle analysis ",_Symbol," ",candleContext);
 }
 
-void PublishWebsiteSignal(string direction,string reason,double score,double entry,double sl,double tp,string explanation){
- string payload="{\\"symbol\\":\\""+_Symbol+"\\",\\"direction\\":\\""+direction+"\\",\\"reason\\":\\""+reason+"\\",\\"explanation\\":\\""+explanation+"\\",\\"tickSummary\\":\\"Live bid/ask ticks: "+IntegerToString(latestTickCount)+" samples; tick direction and strength checked\\",\\"candleSummary\\":\\""+candleContext+"; closed chart candles\\",\\"score\\":"+DoubleToString(score,1)+",\\"entry\\":"+DoubleToString(entry,_Digits)+",\\"stopLoss\\":"+DoubleToString(sl,_Digits)+",\\"takeProfit\\":"+DoubleToString(tp,_Digits)+",\\"tradeVolume\\":\\"Not calculated in manual mode; broker contract sizing required\\",\\"marketVolume\\":\\""+IntegerToString(candleLastVolume)+" tick-volume units\\",\\"volumeType\\":\\"MT5 chart tick volume, not centralized exchange traded volume\\",\\"volumeSource\\":\\"MT5 closed chart candle volume field (MqlRates.tick_volume)\\",\\"dataSource\\":\\"Connected broker MT5 bid/ask ticks and chart candles\\",\\"analysisTime\\":\\""+TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS)+"\\",\\"timeframe\\":\\""+EnumToString(_Period)+"\\",\\"eaVersion\\":\\"2.00\\",\\"autoExecution\\":"+(InpEnableAutoExecution?"true":"false")+"}";
- string response; if(!Request("POST","/api/mt5/publish-signal",payload,response))Print("NEXORA website signal publish failed: ",statusText);
+void PublishWebsiteSignal(string direction,double score,double tickScore,double entry,double sl,double tp){
+ string payload="{\"symbol\":\""+_Symbol+"\",";
+ payload+="\"interval\":\""+EnumToString(_Period)+"\",";
+ payload+="\"direction\":\""+direction+"\",";
+ payload+="\"score\":"+DoubleToString(score,1)+",";
+ payload+="\"tickScore\":"+DoubleToString(tickScore,1)+",";
+ payload+="\"timestamp\":\""+TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS)+"\",";
+ payload+="\"entry\":"+DoubleToString(entry,_Digits)+",";
+ payload+="\"stopLoss\":"+DoubleToString(sl,_Digits)+",";
+ payload+="\"takeProfit\":"+DoubleToString(tp,_Digits)+"}";
+ string response;
+ if(!Request("POST","/api/mt5/signal-publish",payload,response))
+   Print("NEXORA website signal publish failed: ",statusText);
 }
 void Scan(){
  if(busy)return;
@@ -129,7 +139,7 @@ void Scan(){
   string why=!candleReady?"candle confirmation unavailable":(candleDirection!=tickDir?"tick/candle disagreement":"candle confidence below 55");
   Comment("NEXORA MT5 ADVANCED\nFINAL: WAIT\nTick: ",tickDir," ",DoubleToString(tickScore,1),
           " | Candle: ",candleContext,"\nReason: ",why,"\nAuto ",InpEnableAutoExecution?"ON":"OFF");
-  PublishWebsiteSignal("WAIT",why,0,0,0,0,"Tick and candle confirmation is missing, conflicting or below the configured threshold. No entry is proposed.");\n  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL WAIT ",_Symbol," | tick=",tickDir," ",tickScore," | candle=",candleContext," | ",why);}
+  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL WAIT ",_Symbol," | tick=",tickDir," ",tickScore," | candle=",candleContext," | ",why);}
   busy=false;return;
  }
  double tickStrength=tickDir=="BUY"?tickScore:100.0-tickScore;
@@ -149,7 +159,8 @@ void Scan(){
          "\nAuto ",InpEnableAutoExecution?"ON":"OFF"," | Risk ",InpRiskPercent,"%");
  if(stamp!=lastSignal){lastSignal=stamp;Print("NEXORA FINAL ",_Symbol," ",dir," combined score ",DoubleToString(finalScore,1),
      " | tick strength ",DoubleToString(tickStrength,1)," | candle ",candleContext," entry ",entry," SL ",sl," TP ",tp);}
- SaveHistory(dir,finalScore,entry,sl,tp,stamp);\n PublishWebsiteSignal(dir,"Tick and candle analysts agree",finalScore,entry,sl,tp,"Both independent analyses agree on direction. Review trend, momentum and volume context before placing a manual trade.");
+ SaveHistory(dir,finalScore,entry,sl,tp,stamp);
+ PublishWebsiteSignal(dir,finalScore,tickScore,entry,sl,tp);
  if(!InpEnableAutoExecution){busy=false;return;}
  if(finalScore<InpMinimumAutoScore){Print("NEXORA auto blocked: unified score below threshold");busy=false;return;}
  string cd="NEXORA_COOLDOWN_"+_Symbol;
