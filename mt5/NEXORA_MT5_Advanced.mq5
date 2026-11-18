@@ -55,7 +55,7 @@ bool GetTickPayload(string &payload){
  MqlTick ticks[];ulong now=(ulong)TimeCurrent()*1000,from=now>600000?now-600000:0;
  int n=CopyTicks(_Symbol,ticks,COPY_TICKS_ALL,from,300);latestTickCount=n;if(n<60){statusText="Waiting for 60 recent ticks ("+IntegerToString(n)+")";return false;}
  int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);payload="{\"chartSymbol\":\""+_Symbol+"\",\"digits\":"+IntegerToString(digits)+",\"ticks\":[";
- int count=0;for(int i=0;i<n;i++){if(ticks[i].bid<=0||ticks[i].ask<=0||ticks[i].ask<ticks[i].bid)continue;if(count++)payload+=",";payload+="{\"timeMsc\":"+IntegerToString((long)ticks[i].time_msc)+",\"bid\":"+DoubleToString(ticks[i].bid,digits)+",\"ask\":"+DoubleToString(ticks[i].ask,digits)+"}";}
+ int count=0;for(int i=0;i<n;i++){if(ticks[i].bid<=0||ticks[i].ask<=0||ticks[i].ask<ticks[i].bid)continue;if(count++>0)payload+=",";payload+="{\"timeMsc\":"+IntegerToString((long)ticks[i].time_msc)+",\"bid\":"+DoubleToString(ticks[i].bid,digits)+",\"ask\":"+DoubleToString(ticks[i].ask,digits)+"}";}
  payload+="]}";return count>=60;
 }
 double LotsForRisk(ENUM_ORDER_TYPE type,double price,double sl){
